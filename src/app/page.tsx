@@ -10,20 +10,6 @@ import { useMessages } from '@/hooks/useMessages'
 import { useAuth } from '@/contexts/AuthContext'
 import { ProfileSettings } from '@/components/ProfileSettings'
 
-// Add arrow icon component
-const ArrowIcon = () => (
-  <svg
-    xmlns="http://www.w3.org/2000/svg"
-    viewBox="0 0 20 20"
-    fill="currentColor"
-    className="w-5 h-5"
-  >
-    <path
-      d="M3.105 2.289a.75.75 0 00-.826.95l1.414 4.925A1.5 1.5 0 005.135 9.25h6.115a.75.75 0 010 1.5H5.135a1.5 1.5 0 00-1.442 1.086l-1.414 4.926a.75.75 0 00.826.95 28.896 28.896 0 0015.293-7.154.75.75 0 000-1.115A28.897 28.897 0 003.105 2.289z"
-    />
-  </svg>
-)
-
 export default function Home() {
   const router = useRouter()
   const { user, loading: authLoading, signOut } = useAuth()
@@ -92,7 +78,7 @@ export default function Home() {
         {/* Top section */}
         <div className="p-4">
           <div className="flex items-center justify-between mb-4">
-            <h1 className="text-xl font-bold">MagicChat</h1>
+            <h1 className="text-xl font-bold text-blue-500">MagicChat</h1>
             <Button variant="ghost" size="sm" onClick={handleSignOut}>
               Sign out
             </Button>
@@ -172,9 +158,7 @@ export default function Home() {
               placeholder="Type a message..."
               className="flex-1 rounded-md border border-gray-600 bg-gray-700 p-2 text-gray-100 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-orange-500 focus:border-orange-500"
             />
-            <Button onClick={handleSendMessage} className="px-3">
-              <ArrowIcon />
-            </Button>
+            <Button onClick={handleSendMessage} className='bg-blue-500 text-white hover:bg-blue-600'>Send</Button>
           </div>
         </div>
       </div>

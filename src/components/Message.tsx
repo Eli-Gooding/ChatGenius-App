@@ -7,7 +7,15 @@ interface MessageProps {
   avatar?: string
 }
 
+function formatMessage(content: string): string {
+  return content
+    .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
+    .replace(/\*(.*?)\*/g, '<em>$1</em>')
+}
+
 export function Message({ content, sender, timestamp, avatar }: MessageProps) {
+  const formattedContent = formatMessage(content)
+
   return (
     <div className="flex gap-3 py-2">
       <div className="w-10 h-10 rounded-full bg-gray-600 flex-shrink-0 overflow-hidden">
@@ -30,7 +38,10 @@ export function Message({ content, sender, timestamp, avatar }: MessageProps) {
             {timestamp.toLocaleTimeString()}
           </span>
         </div>
-        <p className="text-gray-300 mt-1">{content}</p>
+        <p 
+          className="text-gray-300 mt-1"
+          dangerouslySetInnerHTML={{ __html: formattedContent }}
+        />
       </div>
     </div>
   )
