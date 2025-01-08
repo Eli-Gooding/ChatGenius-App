@@ -10,6 +10,7 @@ import { useMessages } from '@/hooks/useMessages'
 import { useAuth } from '@/contexts/AuthContext'
 import { ProfileSettings } from '@/components/ProfileSettings'
 import { htmlToMarkdown, applyFormatting } from '@/lib/formatMessage'
+import { PaperAirplaneIcon } from '@/components/icons/PaperAirplane'
 
 export default function Home() {
   const router = useRouter()
@@ -249,7 +250,12 @@ export default function Home() {
                 role="textbox"
                 aria-multiline="true"
               />
-              <Button onClick={handleSendMessage}>Send</Button>
+              <Button 
+                onClick={handleSendMessage}
+                className="bg-blue-500 hover:bg-blue-600 text-white p-2"
+              >
+                <PaperAirplaneIcon className="w-5 h-5" />
+              </Button>
             </div>
           </div>
         </div>
