@@ -1,6 +1,6 @@
 'use client'
 
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import { Button } from '@/components/ui/button'
 import { Channel } from '@/components/Channel'
@@ -9,6 +9,7 @@ import { useChannels } from '@/hooks/useChannels'
 import { useMessages } from '@/hooks/useMessages'
 import { useAuth } from '@/contexts/AuthContext'
 import { ProfileSettings } from '@/components/ProfileSettings'
+import { htmlToMarkdown, applyFormatting } from '@/lib/formatMessage'
 
 export default function Home() {
   const router = useRouter()
@@ -16,8 +17,82 @@ export default function Home() {
   const [selectedChannelId, setSelectedChannelId] = useState<string | null>(null)
   const { channels, loading: channelsLoading, createChannel } = useChannels()
   const { messages, loading: messagesLoading, sendMessage } = useMessages(selectedChannelId)
-  const [messageInput, setMessageInput] = useState('')
+  const messageInputRef = useRef<HTMLDivElement>(null)
   const [showProfileSettings, setShowProfileSettings] = useState(false)
+  const [formatting, setFormatting] = useState({
+    bold: false,
+    italic: false,
+    underline: false
+  })
+
+  // Function to handle formatting changes
+  const toggleFormatting = (type: 'bold' | 'italic' | 'underline') => {
+    setFormatting(prev => ({
+      ...prev,
+      [type]: !prev[type]
+    }))
+  }
+
+  // Function to get the HTML content from the contenteditable div
+  const getMessageContent = () => {
+    const messageDiv = document.getElementById('message-input')
+    return messageDiv?.innerHTML || ''
+  }
+
+  // Modified send handler
+  const handleSendMessage = async () => {
+    if (!messageInputRef.current || !user || !selectedChannelId) return
+    
+    const htmlContent = messageInputRef.current.innerHTML
+    if (!htmlContent.trim()) return
+
+    try {
+      // Convert HTML to markdown before sending
+      const markdownContent = htmlToMarkdown(htmlContent)
+      const result = await sendMessage(markdownContent, user.id)
+      console.log('Message sent:', result)
+      messageInputRef.current.innerHTML = ''
+    } catch (error) {
+      console.error('Error details:', error)
+      console.error(error instanceof Error ? error.message : 'Failed to send message')
+    }
+  }
+
+  // Function to handle keyboard events
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault()
+      handleSendMessage()
+    }
+  }
+
+  // Function to handle formatting keyboard shortcuts
+  const handleKeyPress = (e: React.KeyboardEvent) => {
+    if (!messageInputRef.current) return
+
+    if (e.ctrlKey || e.metaKey) {
+      switch (e.key.toLowerCase()) {
+        case 'b':
+          e.preventDefault()
+          document.execCommand('bold', false)
+          break
+        case 'i':
+          e.preventDefault()
+          document.execCommand('italic', false)
+          break
+        case 'u':
+          e.preventDefault()
+          document.execCommand('underline', false)
+          break
+      }
+    }
+  }
+
+  // Function to handle formatting button clicks
+  const handleFormat = (command: string) => {
+    document.execCommand(command, false)
+    messageInputRef.current?.focus()
+  }
 
   // Set initial channel when channels are loaded
   useEffect(() => {
@@ -38,19 +113,6 @@ export default function Home() {
       router.push('/auth')
     } catch (error) {
       console.error('Failed to sign out:', error)
-    }
-  }
-
-  const handleSendMessage = async () => {
-    if (!messageInput.trim() || !user || !selectedChannelId) return
-    
-    try {
-      const result = await sendMessage(messageInput, user.id)
-      console.log('Message sent:', result)
-      setMessageInput('')
-    } catch (error) {
-      console.error('Error details:', error)
-      console.error(error instanceof Error ? error.message : 'Failed to send message')
     }
   }
 
@@ -149,16 +211,46 @@ export default function Home() {
 
         {/* Message input */}
         <div className="border-t border-gray-700 p-4">
-          <div className="flex items-center gap-2">
-            <input
-              type="text"
-              value={messageInput}
-              onChange={(e) => setMessageInput(e.target.value)}
-              onKeyDown={(e) => e.key === 'Enter' && handleSendMessage()}
-              placeholder="Type a message..."
-              className="flex-1 rounded-md border border-gray-600 bg-gray-700 p-2 text-gray-100 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-orange-500 focus:border-orange-500"
-            />
-            <Button onClick={handleSendMessage} className='bg-blue-500 text-white hover:bg-blue-600'>Send</Button>
+          <div className="flex flex-col gap-2">
+            <div className="flex gap-2">
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => handleFormat('bold')}
+                className="text-gray-300 hover:text-gray-100 font-bold"
+              >
+                B
+              </Button>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => handleFormat('italic')}
+                className="text-gray-300 hover:text-gray-100 italic"
+              >
+                I
+              </Button>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => handleFormat('underline')}
+                className="text-gray-300 hover:text-gray-100 underline"
+              >
+                U
+              </Button>
+            </div>
+            <div className="flex items-center gap-2">
+              <div
+                id="message-input"
+                contentEditable
+                ref={messageInputRef}
+                onKeyDown={handleKeyDown}
+                onKeyPress={handleKeyPress}
+                className="flex-1 rounded-md border border-gray-600 bg-gray-700 p-2 text-gray-100 focus:outline-none focus:ring-2 focus:ring-orange-500 focus:border-orange-500 min-h-[2.5rem] max-h-32 overflow-y-auto"
+                role="textbox"
+                aria-multiline="true"
+              />
+              <Button onClick={handleSendMessage}>Send</Button>
+            </div>
           </div>
         </div>
       </div>

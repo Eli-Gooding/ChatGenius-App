@@ -1,4 +1,5 @@
 import React from 'react'
+import { markdownToHtml } from '@/lib/formatMessage'
 
 interface MessageProps {
   content: string
@@ -7,14 +8,8 @@ interface MessageProps {
   avatar?: string
 }
 
-function formatMessage(content: string): string {
-  return content
-    .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
-    .replace(/\*(.*?)\*/g, '<em>$1</em>')
-}
-
 export function Message({ content, sender, timestamp, avatar }: MessageProps) {
-  const formattedContent = formatMessage(content)
+  const formattedContent = markdownToHtml(content)
 
   return (
     <div className="flex gap-3 py-2">
@@ -38,7 +33,7 @@ export function Message({ content, sender, timestamp, avatar }: MessageProps) {
             {timestamp.toLocaleTimeString()}
           </span>
         </div>
-        <p 
+        <div 
           className="text-gray-300 mt-1"
           dangerouslySetInnerHTML={{ __html: formattedContent }}
         />
