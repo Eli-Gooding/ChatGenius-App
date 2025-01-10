@@ -1,7 +1,7 @@
 'use client'
 
-import { useState } from 'react'
-import { useRouter } from 'next/navigation'
+import { useEffect, useState } from 'react'
+import { useRouter, useSearchParams } from 'next/navigation'
 import { Mail, Lock, User } from 'lucide-react'
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -16,8 +16,44 @@ export default function AuthPage() {
   const [username, setUsername] = useState('')
   const [isNewAccount, setIsNewAccount] = useState(false)
   const [isLoading, setIsLoading] = useState(false)
+  const [verificationSent, setVerificationSent] = useState(false)
   const router = useRouter()
+  const searchParams = useSearchParams()
   const { toast } = useToast()
+
+  // Check if user is already logged in
+  useEffect(() => {
+    const checkSession = async () => {
+      const { data: { session } } = await supabase.auth.getSession()
+      if (session) {
+        router.push('/dashboard')
+      }
+    }
+    checkSession()
+  }, [router])
+
+  // Handle error messages from URL params
+  useEffect(() => {
+    const error = searchParams.get('error')
+    if (error) {
+      toast({
+        title: "Error",
+        description: error,
+        variant: "destructive",
+      })
+    }
+  }, [searchParams, toast])
+
+  useEffect(() => {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+      console.log('Auth state changed:', event, session)
+      if (session) {
+        router.push('/dashboard')
+      }
+    })
+
+    return () => subscription.unsubscribe()
+  }, [router])
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -25,36 +61,23 @@ export default function AuthPage() {
 
     try {
       if (isNewAccount) {
-        // First, sign up the user with Supabase Auth
-        const { data: authData, error: authError } = await supabase.auth.signUp({
+        const { data, error } = await supabase.auth.signUp({
           email,
           password,
           options: {
             emailRedirectTo: `${window.location.origin}/auth/callback`,
             data: {
-              user_name: username, // Add username to auth metadata
+              user_name: username,
             },
           },
         })
 
-        if (authError) throw authError
+        if (error) throw error
 
-        // Then, insert the user data into our users table
-        const { error: dbError } = await supabase
-          .from('users')
-          .insert([
-            {
-              id: authData.user?.id,
-              user_name: username,
-              email: email,
-            }
-          ])
-
-        if (dbError) throw dbError
-
+        setVerificationSent(true)
         toast({
           title: "Verification email sent",
-          description: "Please check your email to verify your account.",
+          description: "Please check your email to verify your account. You will be redirected to the app after verification.",
         })
       } else {
         const { data, error } = await supabase.auth.signInWithPassword({
@@ -66,7 +89,7 @@ export default function AuthPage() {
 
         toast({
           title: "Signed in successfully",
-          description: `Welcome back, ${email}!`,
+          description: `Welcome back!`,
         })
         router.push('/dashboard')
       }
@@ -79,6 +102,39 @@ export default function AuthPage() {
     } finally {
       setIsLoading(false)
     }
+  }
+
+  if (verificationSent) {
+    return (
+      <div className="flex items-center justify-center min-h-screen bg-gray-100">
+        <Card className="w-full max-w-md">
+          <CardHeader>
+            <CardTitle>Check Your Email</CardTitle>
+            <CardDescription>
+              We've sent a verification link to {email}
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="text-center space-y-4">
+              <p className="text-gray-600">
+                Please click the link in your email to verify your account.
+                Once verified, you'll be automatically redirected to the app.
+              </p>
+              <p className="text-sm text-gray-500">
+                Didn't receive the email? Check your spam folder or
+                <Button
+                  variant="link"
+                  className="px-1 text-sm"
+                  onClick={() => setVerificationSent(false)}
+                >
+                  try again
+                </Button>
+              </p>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+    )
   }
 
   return (

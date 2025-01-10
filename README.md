@@ -13,15 +13,30 @@ ChatGenius is a modern real-time messaging application built with Next.js, featu
 
 ## Tech Stack
 
+### Core
 - **Framework:** Next.js 14 with App Router
-- **Styling:** Tailwind CSS
-- **UI Components:** shadcn/ui, Radix UI
-- **Icons:** Lucide Icons
-- **Animations:** tailwindcss-animate
-- **Utilities:** class-variance-authority, tailwind-merge
-- **Authentication:** Supabase Auth
+- **Language:** TypeScript
 - **Database:** Supabase (PostgreSQL)
+- **Authentication:** Supabase Auth
 - **Real-time:** Supabase Realtime
+
+### UI & Styling
+- **CSS Framework:** Tailwind CSS
+- **UI Components:** shadcn/ui
+- **Component Library:** Radix UI
+- **Icons:** Lucide Icons
+- **Fonts:** Next/Font with Google Fonts
+
+### Utilities
+- **Class Utilities:** clsx, tailwind-merge
+- **Animations:** tailwindcss-animate
+- **Form Validation:** React Hook Form
+- **Date Handling:** date-fns
+
+### Development
+- **Package Manager:** npm
+- **Code Quality:** TypeScript, ESLint
+- **Formatting:** Prettier
 
 ## Getting Started
 
@@ -39,24 +54,10 @@ git clone https://github.com/yourusername/ChatGenius-App.git
 cd ChatGenius-App
 ```
 
-2. Install dependencies (choose one method):
-
-   **Option 1: Using the setup script (recommended)**
-   ```bash
-   # Make the script executable
-   chmod +x setup.sh
-   # Run the setup script
-   ./setup.sh
-   ```
-
-   **Option 2: Manual installation**
-   ```bash
-   # Install base dependencies
-   npm install
-   
-   # Install UI and animation dependencies
-   npm install lucide-react @radix-ui/react-avatar @radix-ui/react-popover @radix-ui/react-scroll-area class-variance-authority tailwind-merge tailwindcss-animate
-   ```
+2. Install dependencies:
+```bash
+npm install
+```
 
 3. Create a `.env.local` file in the root directory and add your Supabase credentials:
 ```env
@@ -67,62 +68,46 @@ NEXT_PUBLIC_SUPABASE_ANON_KEY=your_supabase_anon_key
 4. Start the development server:
 ```bash
 npm run dev
-# or
-yarn dev
 ```
 
 5. Open [http://localhost:3000](http://localhost:3000) in your browser to see the application.
 
 ## Project Structure
 
+The project follows a clean and organized structure:
+
 ```
 chat-genius/
 ├── src/
-│   ├── components/     # React components
-│   │   ├── ui/        # shadcn/ui components
-│   │   └── ...        # Feature components
-│   ├── app/           # Next.js app router pages
-│   ├── lib/           # Utility functions
-│   └── styles/        # Global styles
-├── public/            # Static assets
-└── ...                # Config files
+│   ├── app/                  # Next.js app directory
+│   ├── components/           # Reusable React components
+│   ├── lib/                  # Utility functions and configurations
+│   ├── hooks/               # Custom React hooks
+│   └── types/               # TypeScript type definitions
+├── public/                  # Static assets
+└── migrations/              # Database migrations
 ```
 
-## Features in Detail
+## Environment Variables
 
-### Channels
-- Create and join channels
-- Public and private channel support
-- Channel member management
-- Real-time message updates
+Required environment variables:
 
-### Direct Messages
-- One-on-one conversations
-- Online status indicators
-- Message read receipts
-- Typing indicators
-
-### Message Features
-- Rich text formatting
-- Emoji reactions
-- File attachments
-- Thread replies
-- Message editing and deletion
-
-### User Interface
-- Clean, modern design
-- Responsive layout
-- Dark mode support
-- Customizable themes
-- Intuitive navigation
+```env
+NEXT_PUBLIC_SUPABASE_URL=your_supabase_url
+NEXT_PUBLIC_SUPABASE_ANON_KEY=your_supabase_anon_key
+```
 
 ## Contributing
 
-Contributions are welcome! Please feel free to submit a Pull Request.
+1. Fork the repository
+2. Create your feature branch (`git checkout -b feature/amazing-feature`)
+3. Commit your changes (`git commit -m 'Add some amazing feature'`)
+4. Push to the branch (`git push origin feature/amazing-feature`)
+5. Open a Pull Request
 
 ## License
 
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+This project is licensed under the MIT License - see the LICENSE file for details.
 
 ## Acknowledgments
 
