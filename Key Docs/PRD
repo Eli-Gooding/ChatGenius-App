@@ -44,8 +44,8 @@ Chat Genius is a real-time messaging app for teams and businesses to collaborate
 ---
 
 ## Application Launch Requirements
-1. Implement secure authentication and user session management using Clerk.  
-2. Provide real-time messaging functionality with WebSockets.  
+1. Implement secure authentication and user session management using Supabase Auth.  
+2. Provide real-time messaging functionality with Supabase Realtime.  
 3. Enable creation and management of channels, including private channels.  
 4. Develop emoji reactions for messages with real-time updates.  
 5. Ensure channel and user data is accessible based on permissions.  
