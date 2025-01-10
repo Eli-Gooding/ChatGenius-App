@@ -15,8 +15,10 @@ ChatGenius is a modern real-time messaging application built with Next.js, featu
 
 - **Framework:** Next.js 14 with App Router
 - **Styling:** Tailwind CSS
-- **UI Components:** shadcn/ui
+- **UI Components:** shadcn/ui, Radix UI
 - **Icons:** Lucide Icons
+- **Animations:** tailwindcss-animate
+- **Utilities:** class-variance-authority, tailwind-merge
 - **Authentication:** Supabase Auth
 - **Database:** Supabase (PostgreSQL)
 - **Real-time:** Supabase Realtime
@@ -37,12 +39,24 @@ git clone https://github.com/yourusername/ChatGenius-App.git
 cd ChatGenius-App
 ```
 
-2. Install dependencies:
-```bash
-npm install
-# or
-yarn install
-```
+2. Install dependencies (choose one method):
+
+   **Option 1: Using the setup script (recommended)**
+   ```bash
+   # Make the script executable
+   chmod +x setup.sh
+   # Run the setup script
+   ./setup.sh
+   ```
+
+   **Option 2: Manual installation**
+   ```bash
+   # Install base dependencies
+   npm install
+   
+   # Install UI and animation dependencies
+   npm install lucide-react @radix-ui/react-avatar @radix-ui/react-popover @radix-ui/react-scroll-area class-variance-authority tailwind-merge tailwindcss-animate
+   ```
 
 3. Create a `.env.local` file in the root directory and add your Supabase credentials:
 ```env
