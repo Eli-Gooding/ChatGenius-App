@@ -1,0 +1,157 @@
+# Feature Details Document for Chat Genius
+
+## 1. Real-Time Messaging
+
+### **Purpose**
+Enable users to communicate with their team members instantly within a channel or direct messages.
+
+### **Functionality**
+- Send and receive messages in real time.
+- Display messages in chronological order.
+- Support threaded replies for contextual discussions.
+
+### **Edge Cases**
+- Large volumes of messages sent simultaneously in a channel.
+- User sends a message while disconnected from the internet.
+- Displaying messages with unsupported or malformed content.
+
+### **Business Rules**
+- Messages must belong to a valid channel or direct message context.
+- Only authenticated users with membership can send messages in a channel.
+
+### **Validation Requirements**
+- Message content must not exceed 10,000 characters.
+- Ensure the user has permission to send messages in the target channel.
+- Prevent empty or null message content from being submitted.
+
+---
+
+## 2. Channel Management
+
+### **Purpose**
+Allow admins to create, manage, and delete channels to organize team discussions.
+
+### **Functionality**
+- Create public or private channels with a name and description.
+- Add or remove members from a channel.
+- Delete channels when no longer needed.
+
+### **Edge Cases**
+- Attempting to delete a channel with active messages.
+- Adding a user who is already a member.
+- Assigning duplicate admin roles within a channel.
+
+### **Business Rules**
+- Only users with admin privileges can create, manage, or delete channels.
+- Deleted channels must not remove associated messages but archive them.
+
+### **Validation Requirements**
+- Channel name must be unique and between 3-50 characters.
+- Validate user permissions before adding or removing members.
+- Ensure private channels are accessible only to authorized users.
+
+---
+
+## 3. Emoji Reactions
+
+### **Purpose**
+Enable users to quickly express reactions to messages in a lightweight, non-intrusive way.
+
+### **Functionality**
+- Add reactions to any message.
+- Display the count and list of users for each reaction.
+- Allow users to remove their reactions.
+
+### **Edge Cases**
+- Multiple users reacting to the same message simultaneously.
+- Adding a reaction to a deleted or non-existent message.
+- Using invalid or unsupported emoji characters.
+
+### **Business Rules**
+- Each user can add only one reaction per emoji per message.
+- Reactions must not modify or delete the original message.
+
+### **Validation Requirements**
+- Validate that the message exists and is accessible to the user.
+- Ensure emoji input conforms to Unicode standards.
+- Prevent duplicate reactions from the same user.
+
+---
+
+## 4. User Presence & Status
+
+### **Purpose**
+Allow users to see their teammates' availability and communicate effectively.
+
+### **Functionality**
+- Display user status as online, away, or offline.
+- Allow users to manually set their status.
+- Automatically update status based on activity.
+
+### **Edge Cases**
+- Handling inactive users who leave the app running without interaction.
+- Ensuring status updates are reflected across all devices in real time.
+
+### **Business Rules**
+- Default status is "online" when the user logs in.
+- Status must persist between sessions.
+
+### **Validation Requirements**
+- Validate that status changes are triggered by the authenticated user.
+- Ensure the status update propagates to all subscribed channels.
+- Prevent unsupported status types from being set.
+
+---
+
+## 5. File Sharing & Search
+
+### **Purpose**
+Facilitate collaboration by enabling users to share files and search for shared content.
+
+### **Functionality**
+- Upload files to channels or direct messages.
+- Display a searchable list of all files shared in a channel.
+- Support filtering by file type, date, and uploader.
+
+### **Edge Cases**
+- Uploading files that exceed size limits or unsupported formats.
+- Searching in a channel with a high volume of files.
+- Handling deleted files in the search results.
+
+### **Business Rules**
+- Only authenticated users can upload files to channels where they are members.
+- File uploads must comply with organizational policies (e.g., size, type).
+- Deleted files must be removed from the search index.
+
+### **Validation Requirements**
+- File size must not exceed 50 MB.
+- Validate file types against an allowed list (e.g., PDF, DOCX, JPG).
+- Ensure the user has upload permissions for the target channel.
+
+---
+
+## 6. Authentication and Authorization
+
+### **Purpose**
+Ensure secure access and appropriate permissions for all features in the application.
+
+### **Functionality**
+- Authenticate users using Supabase Auth and persist sessions securely.
+- Authorize access to features and data based on roles and memberships.
+- Support single sign-on (SSO) and passwordless authentication options.
+
+### **Edge Cases**
+- Expired or invalid user sessions while performing actions.
+- Unauthorized users attempting to access private channels or admin features.
+
+### **Business Rules**
+- All API calls must verify user authentication and permissions.
+- Role-based access control (RBAC) must enforce user permissions strictly.
+
+### **Validation Requirements**
+- Validate session tokens before granting access to any feature.
+- Ensure roles and permissions align with the business logic.
+- Prevent unauthorized access to sensitive data or admin features.
+
+---
+
