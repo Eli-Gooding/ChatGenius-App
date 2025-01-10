@@ -10,6 +10,11 @@ TO authenticated
 USING (auth.uid() = id)
 WITH CHECK (auth.uid() = id);
 
+CREATE POLICY "Enable insert for users during signup"
+ON public.users FOR INSERT
+WITH CHECK (true);
+
 -- migrate:down
 DROP POLICY IF EXISTS "Users can view all profiles" ON public.users;
-DROP POLICY IF EXISTS "Users can update own profile" ON public.users; 
+DROP POLICY IF EXISTS "Users can update own profile" ON public.users;
+DROP POLICY IF EXISTS "Enable insert for users during signup" ON public.users; 
