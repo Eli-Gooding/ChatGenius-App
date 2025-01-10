@@ -1,0 +1,53 @@
+# Product Requirements Document (PRD)
+
+## Project Overview  
+Chat Genius is a real-time messaging app for teams and businesses to collaborate effectively, featuring organized channels, real-time messaging, file sharing, and emoji reactions. The application ensures secure access, intuitive workflows, and robust channel management for admins and members.
+
+---
+
+## User Roles & Core Workflows
+
+### Team Member
+1. Send and receive real-time messages in channels or direct messages.  
+2. Organize conversations by joining channels and following threads.  
+3. React to messages using emojis to provide quick feedback.  
+
+### Channel Admin
+4. Create, manage, and delete channels to organize team communication.  
+5. Add or remove members in channels to control access.  
+6. Assign roles within channels to ensure proper permissions.  
+
+---
+
+## Technical Foundation
+
+### Data Models
+1. **User**: `id`, `name`, `email`, `status`, `avatar_url`, timestamps.  
+2. **Channel**: `id`, `name`, `description`, `is_private`, timestamps.  
+3. **Membership**: `id`, `user_id`, `channel_id`, `role`, `joined_at`.  
+4. **Message**: `id`, `channel_id`, `user_id`, `content`, `timestamp`, `parent_message_id`.  
+5. **Reaction**: `id`, `message_id`, `user_id`, `emoji`, `created_at`.  
+
+### API Endpoints
+1. `POST /api/channels` - Create a new channel (auth: admin).  
+2. `GET /api/channels/:id` - Fetch channel details (auth: member).  
+3. `POST /api/channels/:id/messages` - Send a message to a channel (auth: member).  
+4. `POST /api/messages/:id/reactions` - Add a reaction to a message (auth: member).  
+5. `POST /api/channels/:id/memberships` - Add a user to a channel (auth: admin).  
+
+### Key Components
+1. **Global Layout**: Navigation bar for channels and user profile.  
+2. **Channel List**: Displays all user-accessible channels.  
+3. **Channel Page**: Includes message feed, member list, and message input.  
+4. **Settings Page**: User profile and status management form.  
+
+---
+
+## Application Launch Requirements
+1. Implement secure authentication and user session management using Clerk.  
+2. Provide real-time messaging functionality with WebSockets.  
+3. Enable creation and management of channels, including private channels.  
+4. Develop emoji reactions for messages with real-time updates.  
+5. Ensure channel and user data is accessible based on permissions.  
+6. Deploy a responsive UI with a structured navigation and channel-based workflows.  
+7. Set up scalable backend APIs with Supabase and a Postgres database.  
