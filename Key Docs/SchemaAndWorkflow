@@ -1,0 +1,197 @@
+# Schemas and Policies for Chat Genius
+
+## Overview
+This document outlines the necessary database schemas and policies to support the core workflow of Chat Genius, focusing on user authentication, workspaces, channel creation, message creation, replies, and message reactions. Each schema and policy is designed to ensure data integrity, security, and proper access control.
+
+---
+
+## Database Schemas
+
+### 1. **User Table**
+Stores information about registered users, integrated with Supabase Auth.
+```sql
+CREATE TABLE public.users (
+    id uuid REFERENCES auth.users NOT NULL PRIMARY KEY,
+    user_name text,
+    email text,
+    status text CHECK (status IN ('online', 'away', 'offline')) DEFAULT 'offline',
+    last_active_at timestamptz,
+    avatar_url text,
+    created_at timestamptz DEFAULT now(),
+    updated_at timestamptz DEFAULT now()
+);
+```
+
+### 2. **Workspace Table**
+Stores information about workspaces.
+```sql
+CREATE TABLE public.workspaces (
+    id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
+    workspace_name text NOT NULL,
+    workspace_description text,
+    created_by uuid REFERENCES public.users(id) ON DELETE SET NULL,
+    created_at timestamptz DEFAULT now(),
+    updated_at timestamptz DEFAULT now()
+);
+```
+
+### 3. **Channel Table**
+Stores information about communication channels within a workspace.
+```sql
+CREATE TABLE public.channels (
+    id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
+    channel_name text NOT NULL,
+    channel_description text,
+    is_private boolean DEFAULT false,
+    workspace_id uuid REFERENCES public.workspaces(id) ON DELETE CASCADE,
+    created_by uuid REFERENCES public.users(id) ON DELETE SET NULL,
+    created_at timestamptz DEFAULT now(),
+    updated_at timestamptz DEFAULT now()
+);
+```
+
+### 4. **Membership Table**
+Tracks user membership in channels.
+```sql
+CREATE TABLE public.memberships (
+    id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
+    user_id uuid REFERENCES public.users(id) ON DELETE CASCADE,
+    channel_id uuid REFERENCES public.channels(id) ON DELETE CASCADE,
+    user_role text CHECK (user_role IN ('admin', 'member')) DEFAULT 'member',
+    joined_at timestamptz DEFAULT now(),
+    UNIQUE(user_id, channel_id)
+);
+```
+
+### 5. **Message Table**
+Stores messages sent within channels.
+```sql
+CREATE TABLE public.messages (
+    id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
+    channel_id uuid REFERENCES public.channels(id) ON DELETE CASCADE,
+    user_id uuid REFERENCES public.users(id) ON DELETE CASCADE,
+    content text NOT NULL,
+    parent_message_id uuid REFERENCES public.messages(id) ON DELETE SET NULL,
+    created_at timestamptz DEFAULT now(),
+    updated_at timestamptz DEFAULT now()
+);
+```
+
+### 6. **Reaction Table**
+Tracks reactions to messages.
+```sql
+CREATE TABLE public.reactions (
+    id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
+    message_id uuid REFERENCES public.messages(id) ON DELETE CASCADE,
+    user_id uuid REFERENCES public.users(id) ON DELETE CASCADE,
+    emoji text NOT NULL,
+    created_at timestamptz DEFAULT now(),
+    UNIQUE(message_id, user_id, emoji)
+);
+```
+
+---
+
+## Policies and Access Controls
+
+### 1. **User Authentication**
+- **Sign Up**: Users are authenticated via Supabase Auth and their details are added to the `users` table.
+- **Sign In**: Authentication is handled by Supabase Auth, with user data synced to our `users` table.
+- **Status**: User presence is tracked via status ('online', 'away', 'offline') and last_active_at timestamp.
+
+### 2. **Workspace Policies**
+- Users can view all workspaces.
+- Users can create new workspaces.
+- Workspace creators automatically become workspace admins.
+- Workspace deletion cascades to all associated channels.
+
+### 3. **Channel Policies**
+- Users can only create channels within a workspace they have access to.
+- Private channels are visible only to members.
+- Channel admins can add or remove members and update channel details.
+- Channel deletion cascades to memberships and messages.
+
+### 4. **Message Policies**
+- Users can only post messages in channels they are members of.
+- Messages are automatically deleted when their channel is deleted (CASCADE).
+- Parent messages can be deleted without affecting replies (SET NULL).
+- All messages track creation and update timestamps.
+
+### 5. **Reaction Policies**
+- Users can react to messages only in channels they belong to.
+- A user can only add one of each emoji per message (UNIQUE constraint).
+- Reactions are automatically deleted when their message is deleted (CASCADE).
+
+---
+
+## Database Features
+
+### 1. **Referential Integrity**
+- All foreign keys are properly constrained with appropriate ON DELETE actions
+- CASCADE: Ensures child records are deleted with parent
+- SET NULL: Allows soft removal of parent while preserving child records
+
+### 2. **Data Consistency**
+- UNIQUE constraints prevent duplicate memberships and reactions
+- CHECK constraints enforce valid status and role values
+- DEFAULT values ensure required data is always present
+
+### 3. **Security**
+- Row Level Security enabled on all tables
+- Supabase Auth integration for user management
+- Role-based access control through memberships
+
+### 4. **Timestamps**
+- All timestamps use timestamptz for proper timezone support
+- Creation and update times tracked where appropriate
+- User last activity tracking for presence management
+
+### 5. **Indexes**
+- Primary keys automatically indexed
+- Foreign key relationships indexed for performance
+- Additional indexes on frequently queried columns
+
+---
+
+## Workflow Mapping
+
+### **Authentication Workflow**
+1. **Sign Up**
+   - User provides email and password.
+   - System authenticates via Supabase Auth.
+   - New user is added to the `users` table.
+
+2. **Sign In**
+   - User provides email and password.
+   - System validates user credentials.
+   - System checks if user exists in `users` table.
+
+### **Workspace Selection Workflow**
+1. **Workspace List**
+   - After login, the user is presented with a list of all available workspaces.
+   - User can select an existing workspace or create a new one.
+
+2. **Workspace Navigation**
+   - Upon selecting a workspace, the system displays all channels within the workspace.
+
+### **General Chat Workflow**
+1. **Channel Interaction**
+   - User selects or creates a channel within the workspace.
+   - Membership is verified for private channels.
+
+2. **Message Interaction**
+   - User sends a message.
+   - Message is stored in `messages` table with `channel_id` and `user_id` references.
+   - Replies reference `parent_message_id`.
+
+3. **Reactions**
+   - User reacts to a message.
+   - Reaction is added to the `reactions` table.
+   - Policies ensure uniqueness and channel membership.
+
+---
+
+## Areas for Improvement
+1. **Tenant Isolation**: Introduce a `tenant_id` column across tables to support multi-tenancy.
+2. **Audit Logs**: Add an `audit_logs` table to track user actions for better observability.
+3. **Message Editing and Deletion**: Extend `messages` table with `is_edited` and `is_deleted` flags.
