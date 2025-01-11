@@ -13,14 +13,6 @@ USING (
 CREATE POLICY "Channel admins can create memberships"
 ON public.memberships FOR INSERT
 TO authenticated
-USING (
-    EXISTS (
-        SELECT 1 FROM public.memberships
-        WHERE channel_id = memberships.channel_id
-        AND user_id = auth.uid()
-        AND user_role = 'admin'
-    )
-)
 WITH CHECK (
     EXISTS (
         SELECT 1 FROM public.memberships

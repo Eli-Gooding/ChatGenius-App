@@ -14,14 +14,6 @@ USING (
 CREATE POLICY "Members can create reactions in their channels"
 ON public.reactions FOR INSERT
 TO authenticated
-USING (
-    EXISTS (
-        SELECT 1 FROM public.messages m
-        JOIN public.memberships mb ON mb.channel_id = m.channel_id
-        WHERE m.id = reactions.message_id
-        AND mb.user_id = auth.uid()
-    )
-)
 WITH CHECK (
     EXISTS (
         SELECT 1 FROM public.messages m

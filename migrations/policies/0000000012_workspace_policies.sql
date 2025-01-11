@@ -13,9 +13,7 @@ USING (
 
 CREATE POLICY "Users can create workspaces"
 ON public.workspaces FOR INSERT
-TO authenticated
-USING (true)
-WITH CHECK (true);
+TO authenticated WITH CHECK (true);
 
 CREATE POLICY "Workspace creators can update their workspaces"
 ON public.workspaces FOR UPDATE

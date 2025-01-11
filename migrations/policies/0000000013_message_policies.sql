@@ -13,13 +13,6 @@ USING (
 CREATE POLICY "Members can create messages in their channels"
 ON public.messages FOR INSERT
 TO authenticated
-USING (
-    EXISTS (
-        SELECT 1 FROM public.memberships
-        WHERE channel_id = messages.channel_id
-        AND user_id = auth.uid()
-    )
-)
 WITH CHECK (
     EXISTS (
         SELECT 1 FROM public.memberships
