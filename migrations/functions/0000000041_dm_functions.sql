@@ -22,17 +22,31 @@ BEGIN
     END IF;
 
     -- Check if DM channel already exists in this workspace
-    SELECT c.id INTO channel_id
-    FROM channels c
-    JOIN memberships m1 ON m1.channel_id = c.id
-    JOIN memberships m2 ON m2.channel_id = c.id
-    WHERE c.is_private = true
-    AND c.workspace_id = get_or_create_dm_channel.workspace_id
-    AND m1.user_id = user1_id
-    AND m2.user_id = user2_id
-    AND (
-        SELECT COUNT(*) FROM memberships m WHERE m.channel_id = c.id
-    ) = 2;
+    IF user1_id = user2_id THEN
+        -- For self-DMs, look for a channel where the user is the only member
+        SELECT c.id INTO channel_id
+        FROM channels c
+        JOIN memberships m ON m.channel_id = c.id
+        WHERE c.is_private = true
+        AND c.workspace_id = get_or_create_dm_channel.workspace_id
+        AND m.user_id = user1_id
+        AND (
+            SELECT COUNT(*) FROM memberships m2 WHERE m2.channel_id = c.id
+        ) = 1;
+    ELSE
+        -- For regular DMs, look for a channel with both users
+        SELECT c.id INTO channel_id
+        FROM channels c
+        JOIN memberships m1 ON m1.channel_id = c.id
+        JOIN memberships m2 ON m2.channel_id = c.id
+        WHERE c.is_private = true
+        AND c.workspace_id = get_or_create_dm_channel.workspace_id
+        AND m1.user_id = user1_id
+        AND m2.user_id = user2_id
+        AND (
+            SELECT COUNT(*) FROM memberships m WHERE m.channel_id = c.id
+        ) = 2;
+    END IF;
 
     -- If channel doesn't exist, create it
     IF channel_id IS NULL THEN
@@ -45,11 +59,18 @@ BEGIN
         )
         RETURNING id INTO channel_id;
 
-        -- Add both users to the channel
-        INSERT INTO memberships (user_id, channel_id, user_role)
-        VALUES
-            (user1_id, channel_id, 'member'),
-            (user2_id, channel_id, 'member');
+        -- Add user(s) to the channel
+        IF user1_id = user2_id THEN
+            -- For self-DMs, add only the user once
+            INSERT INTO memberships (user_id, channel_id, user_role)
+            VALUES (user1_id, channel_id, 'member');
+        ELSE
+            -- For regular DMs, add both users
+            INSERT INTO memberships (user_id, channel_id, user_role)
+            VALUES
+                (user1_id, channel_id, 'member'),
+                (user2_id, channel_id, 'member');
+        END IF;
     END IF;
 
     RETURN channel_id;
@@ -84,7 +105,7 @@ BEGIN
         AND (
             SELECT COUNT(*) FROM memberships m3
             WHERE m3.channel_id = c.id
-        ) = 2
+        ) IN (1, 2)  -- Allow both single-member (self-DM) and two-member channels
     ),
     other_users AS (
         SELECT DISTINCT ON (c.id)
@@ -92,18 +113,13 @@ BEGIN
             u.id as other_user_id,
             u.user_name as other_user_name,
             u.avatar_url as other_user_avatar_url,
-            u.id = current_user_id as is_self_dm
+            (SELECT COUNT(*) = 1 FROM memberships m4 WHERE m4.channel_id = c.id) as is_self_dm
         FROM user_channels uc
         JOIN channels c ON c.id = uc.id
         JOIN memberships m ON m.channel_id = c.id
         JOIN users u ON u.id = m.user_id
-        WHERE u.id != current_user_id
-        OR (u.id = current_user_id AND NOT EXISTS (
-            SELECT 1 FROM memberships m2
-            JOIN users u2 ON u2.id = m2.user_id
-            WHERE m2.channel_id = c.id
-            AND u2.id != current_user_id
-        ))
+        WHERE u.id = current_user_id
+        OR u.id != current_user_id
         ORDER BY c.id, u.id
     )
     SELECT * FROM other_users

@@ -7,6 +7,7 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { createClientComponentClient } from '@supabase/auth-helpers-nextjs'
 import { toast } from 'sonner'
 import { useRouter } from 'next/navigation'
+import { Session } from '@supabase/supabase-js'
 
 interface User {
   id: string
@@ -22,6 +23,7 @@ interface DMUserListProps {
 export function DMUserList({ workspaceId, onClose }: DMUserListProps) {
   const [users, setUsers] = useState<User[]>([])
   const [isLoading, setIsLoading] = useState(true)
+  const [session, setSession] = useState<Session | null>(null)
   const router = useRouter()
   const supabase = createClientComponentClient()
 
@@ -37,12 +39,12 @@ export function DMUserList({ workspaceId, onClose }: DMUserListProps) {
         toast.error('Please sign in to view users')
         return
       }
+      setSession(session)
 
       // Get all users in the workspace
       const { data, error } = await supabase
         .from('users')
         .select('id, user_name, avatar_url')
-        .neq('id', session.user.id) // Exclude current user
         .order('user_name')
 
       if (error) {
@@ -116,7 +118,7 @@ export function DMUserList({ workspaceId, onClose }: DMUserListProps) {
                 <AvatarImage src={user.avatar_url || undefined} />
                 <AvatarFallback>{user.user_name?.[0]?.toUpperCase() || '?'}</AvatarFallback>
               </Avatar>
-              {user.user_name}
+              {user.user_name}{user.id === session?.user?.id ? ' (You)' : ''}
             </Button>
           ))
         )}
