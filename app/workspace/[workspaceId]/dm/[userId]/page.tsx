@@ -1,16 +1,13 @@
-import { Sidebar } from "@/components/sidebar"
-import { Header } from "@/components/header"
-import { ChatArea } from "@/components/chat-area"
+import { DMContent } from "@/components/dm-content"
 
-export default function DirectMessagePage({ params }: { params: { workspaceId: string, userId: string } }) {
-  return (
-    <div className="flex h-screen bg-gray-50">
-      <Sidebar workspaceId={params.workspaceId} />
-      <main className="flex-1 flex flex-col">
-        <Header userName={decodeURIComponent(params.userId)} />
-        <ChatArea userName={decodeURIComponent(params.userId)} />
-      </main>
-    </div>
-  )
+interface PageProps {
+  params: {
+    workspaceId: string;
+    userId: string;
+  };
+}
+
+export default async function DirectMessagePage({ params }: PageProps) {
+  return <DMContent workspaceId={params.workspaceId} userId={params.userId} />;
 }
 
