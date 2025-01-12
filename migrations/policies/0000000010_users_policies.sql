@@ -1,4 +1,8 @@
 -- migrate:up
+
+-- Grant basic table permissions to authenticated users
+GRANT SELECT ON public.users TO authenticated;
+
 CREATE POLICY "Users can view all profiles"
 ON public.users FOR SELECT
 TO authenticated
