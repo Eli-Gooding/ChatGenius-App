@@ -19,6 +19,7 @@ interface ChannelContentProps {
 export function ChannelContent({ workspaceId, channelId }: ChannelContentProps) {
   const [channel, setChannel] = useState<Channel | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [isDirectMessage, setIsDirectMessage] = useState(false);
   const supabase = createClientComponentClient();
 
   useEffect(() => {
@@ -26,7 +27,7 @@ export function ChannelContent({ workspaceId, channelId }: ChannelContentProps) 
       try {
         const { data, error } = await supabase
           .from('channels')
-          .select('channel_name')
+          .select('channel_name, is_private')
           .eq('id', channelId)
           .single();
 
@@ -36,6 +37,8 @@ export function ChannelContent({ workspaceId, channelId }: ChannelContentProps) 
         }
 
         setChannel(data);
+        // Check if this is a DM channel (private channel with name starting with 'dm_')
+        setIsDirectMessage(data.is_private && data.channel_name.startsWith('dm_'));
       } catch (error) {
         console.error('Fetch error:', error);
         if (error instanceof Error) {
@@ -53,10 +56,11 @@ export function ChannelContent({ workspaceId, channelId }: ChannelContentProps) 
     <div className="flex h-screen bg-gray-50">
       <Sidebar workspaceId={workspaceId} />
       <main className="flex-1 flex flex-col">
-        <Header channelName={channel?.channel_name} />
+        <Header channelName={!isDirectMessage ? channel?.channel_name : undefined} />
         <ChatArea 
-          channelName={channel?.channel_name} 
+          channelName={!isDirectMessage ? channel?.channel_name : undefined}
           channelId={channelId}
+          isDirectMessage={isDirectMessage}
         />
       </main>
     </div>

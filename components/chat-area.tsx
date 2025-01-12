@@ -41,21 +41,87 @@ interface Message {
   reactions?: { [key: string]: number };
 }
 
+interface MembershipWithUser {
+  user_id: string;
+  users: {
+    id: string;
+    user_name: string;
+  };
+}
+
 interface ChatAreaProps {
   channelName?: string;
   userName?: string;
   channelId?: string;
+  isDirectMessage?: boolean;
 }
 
-function ChatArea({ channelName, userName, channelId }: ChatAreaProps) {
+function ChatArea({ channelName, userName, channelId, isDirectMessage }: ChatAreaProps) {
   const [messages, setMessages] = useState<Message[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [activeThread, setActiveThread] = useState<Message | null>(null);
+  const [otherUserName, setOtherUserName] = useState<string | null>(null);
   const viewportRef = useRef<HTMLDivElement>(null);
   const [shouldScrollToBottom, setShouldScrollToBottom] = useState(true);
   const lastScrollPosition = useRef<number>(0);
   const isInitialLoad = useRef<boolean>(true);
   const supabase = createClientComponentClient();
+
+  // Fetch the other user's name for DMs
+  useEffect(() => {
+    const fetchDMUserName = async () => {
+      if (!channelId || !isDirectMessage) return;
+
+      try {
+        // Get current user's session
+        const { data: { session }, error: authError } = await supabase.auth.getSession();
+        if (!session) return;
+
+        console.log('Current user ID:', session.user.id);
+
+        // First get the memberships with user data
+        const { data: memberships, error: membershipError } = await supabase
+          .from('memberships')
+          .select(`
+            user_id,
+            users (
+              id,
+              user_name
+            )
+          `)
+          .eq('channel_id', channelId)
+          .returns<MembershipWithUser[]>();
+
+        if (membershipError || !memberships) {
+          console.error('Error fetching memberships:', membershipError);
+          return;
+        }
+
+        console.log('Memberships data:', memberships);
+
+        // If it's a self DM (only one member)
+        if (memberships.length === 1) {
+          const member = memberships[0];
+          setOtherUserName(`${member.users.user_name} (You)`);
+          return;
+        }
+
+        // For regular DMs, find the other user
+        const otherMember = memberships.find(m => m.user_id !== session.user.id);
+        if (!otherMember) {
+          console.error('Could not find other member in DM');
+          return;
+        }
+
+        console.log('Other member:', otherMember);
+        setOtherUserName(otherMember.users.user_name);
+      } catch (error) {
+        console.error('Error fetching DM user:', error);
+      }
+    };
+
+    fetchDMUserName();
+  }, [channelId, isDirectMessage]);
 
   // Scroll to bottom
   const scrollToBottom = () => {
@@ -153,39 +219,46 @@ function ChatArea({ channelName, userName, channelId }: ChatAreaProps) {
           if (payload.eventType === 'INSERT') {
             console.log('New message received:', payload.new);
             
-            // Get the user data in parallel with handling the message
-            const { data: userData, error: userError } = await supabase
-              .from('users')
-              .select('user_name, avatar_url')
-              .eq('id', payload.new.user_id)
-              .single();
+            // Only update main message list if it's a root message
+            if (!payload.new.parent_message_id) {
+              // Get the user data in parallel with handling the message
+              const { data: userData, error: userError } = await supabase
+                .from('users')
+                .select('user_name, avatar_url')
+                .eq('id', payload.new.user_id)
+                .single();
 
-            if (userError) {
-              console.error('Error fetching user data:', userError);
-              return;
-            }
-
-            console.log('User data fetched:', userData);
-
-            const newMessage: Message = {
-              id: payload.new.id,
-              user_id: payload.new.user_id,
-              content: payload.new.content,
-              created_at: payload.new.created_at,
-              replies: [],
-              reactions: {},
-              user: userData
-            };
-
-            console.log('Adding new message to state:', newMessage);
-            setMessages(prev => {
-              // Check if message already exists
-              if (prev.some(msg => msg.id === newMessage.id)) {
-                console.log('Message already exists, skipping...');
-                return prev;
+              if (userError) {
+                console.error('Error fetching user data:', userError);
+                return;
               }
-              return [...prev, newMessage];
-            });
+
+              console.log('User data fetched:', userData);
+
+              const newMessage: Message = {
+                id: payload.new.id,
+                user_id: payload.new.user_id,
+                content: payload.new.content,
+                created_at: payload.new.created_at,
+                replies: [],
+                reactions: {},
+                user: userData
+              };
+
+              console.log('Adding new message to state:', newMessage);
+              setMessages(prev => {
+                // Check if message already exists
+                if (prev.some(msg => msg.id === newMessage.id)) {
+                  console.log('Message already exists, skipping...');
+                  return prev;
+                }
+                return [...prev, newMessage];
+              });
+            } else if (activeThread && payload.new.parent_message_id === activeThread.id) {
+              // If it's a reply to the active thread, refresh thread replies
+              const replies = await fetchThreadReplies(activeThread.id);
+              setActiveThread(prev => prev ? { ...prev, replies } : null);
+            }
           }
         }
       )
@@ -258,6 +331,7 @@ function ChatArea({ channelName, userName, channelId }: ChatAreaProps) {
           )
         `)
         .eq('channel_id', channelId)
+        .is('parent_message_id', null) // Only fetch root messages
         .order('created_at', { ascending: true });
 
       if (error) {
@@ -290,6 +364,64 @@ function ChatArea({ channelName, userName, channelId }: ChatAreaProps) {
     } finally {
       setIsLoading(false);
     }
+  };
+
+  const fetchThreadReplies = async (threadMessageId: string): Promise<Message[]> => {
+    if (!channelId) return [];
+    
+    try {
+      const { data: rawData, error } = await supabase
+        .from('messages')
+        .select(`
+          id,
+          user_id,
+          content,
+          created_at,
+          users:users!messages_user_id_fkey (
+            user_name,
+            avatar_url
+          ),
+          reactions (
+            emoji,
+            user_id
+          )
+        `)
+        .eq('channel_id', channelId)
+        .eq('parent_message_id', threadMessageId)
+        .order('created_at', { ascending: true });
+
+      if (error) {
+        console.error('Error fetching thread replies:', error);
+        toast.error('Error loading replies: ' + error.message);
+        return [];
+      }
+
+      const messagesData = rawData as unknown as DatabaseMessageRow[];
+      return messagesData.map(msg => ({
+        id: msg.id,
+        user_id: msg.user_id,
+        content: msg.content,
+        created_at: msg.created_at,
+        replies: [],
+        reactions: msg.reactions?.reduce((acc, reaction) => {
+          acc[reaction.emoji] = (acc[reaction.emoji] || 0) + 1;
+          return acc;
+        }, {} as { [key: string]: number }) || {},
+        user: msg.users
+      })) as Message[];
+    } catch (error) {
+      console.error('Fetch thread replies error:', error);
+      return [];
+    }
+  };
+
+  // Modify the setActiveThread to fetch replies when opening a thread
+  const handleOpenThread = async (message: Message) => {
+    const replies = await fetchThreadReplies(message.id);
+    setActiveThread({
+      ...message,
+      replies
+    });
   };
 
   const toggleEmoji = async (messageId: string, emoji: string) => {
@@ -337,7 +469,11 @@ function ChatArea({ channelName, userName, channelId }: ChatAreaProps) {
     }
   };
 
-  const placeholder = channelName ? `Message #${channelName}` : `Message ${userName}`;
+  const placeholder = isDirectMessage 
+    ? `Message ${otherUserName || userName || '...'}`
+    : channelName 
+      ? `Message #${channelName}` 
+      : 'Message';
 
   return (
     <div className="flex-1 flex bg-white h-[calc(100vh-4rem)]">
@@ -356,7 +492,7 @@ function ChatArea({ channelName, userName, channelId }: ChatAreaProps) {
                       key={message.id}
                       message={message}
                       toggleEmoji={toggleEmoji}
-                      openThread={setActiveThread}
+                      openThread={handleOpenThread}
                     />
                   ))
                 )}
@@ -388,7 +524,7 @@ function ChatArea({ channelName, userName, channelId }: ChatAreaProps) {
                   <MessageItem
                     message={activeThread}
                     toggleEmoji={toggleEmoji}
-                    openThread={setActiveThread}
+                    openThread={handleOpenThread}
                     isThreadView
                   />
                   {activeThread.replies?.map((reply) => (
@@ -396,7 +532,7 @@ function ChatArea({ channelName, userName, channelId }: ChatAreaProps) {
                       key={reply.id}
                       message={reply}
                       toggleEmoji={toggleEmoji}
-                      openThread={setActiveThread}
+                      openThread={handleOpenThread}
                       isThreadView
                     />
                   ))}
@@ -463,6 +599,15 @@ function MessageItem({ message, toggleEmoji, openThread, isThreadView }: Message
               </div>
             </PopoverContent>
           </Popover>
+          <Button 
+            variant="ghost" 
+            size="sm" 
+            className="opacity-0 group-hover:opacity-100"
+            onClick={() => openThread(message)}
+          >
+            <MessageSquare className="h-4 w-4 mr-1" />
+            Reply
+          </Button>
           {!isThreadView && message.replies?.length > 0 && (
             <Button variant="ghost" size="sm" className="opacity-0 group-hover:opacity-100" onClick={() => openThread(message)}>
               <MessageSquare className="h-4 w-4 mr-1" />
