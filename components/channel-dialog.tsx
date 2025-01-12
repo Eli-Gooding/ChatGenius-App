@@ -47,12 +47,26 @@ export function ChannelDialog({ isOpen, onClose, workspaceId, mode, onChannelAct
         return
       }
 
+      // First get the user's memberships
+      const { data: memberships } = await supabase
+        .from('memberships')
+        .select('channel_id')
+        .eq('user_id', session.user.id)
+
+      const memberChannelIds = new Set(memberships?.map(m => m.channel_id) || [])
+
       // Get all public channels in the workspace
       const { data, error } = await supabase
         .from('channels')
-        .select('id, channel_name, channel_description, is_private')
+        .select(`
+          id,
+          channel_name,
+          channel_description,
+          is_private
+        `)
         .eq('workspace_id', workspaceId)
         .eq('is_private', false)
+        .order('channel_name')
 
       if (error) {
         toast.error('Error loading channels: ' + error.message)
@@ -60,14 +74,7 @@ export function ChannelDialog({ isOpen, onClose, workspaceId, mode, onChannelAct
       }
 
       // Filter out channels the user is already a member of
-      const { data: memberships } = await supabase
-        .from('memberships')
-        .select('channel_id')
-        .eq('user_id', session.user.id)
-
-      const memberChannelIds = new Set((memberships || []).map(m => m.channel_id))
       const availableChannels = data?.filter(channel => !memberChannelIds.has(channel.id)) || []
-
       setChannels(availableChannels)
     } catch (error) {
       console.error('Fetch error:', error)

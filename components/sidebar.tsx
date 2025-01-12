@@ -39,10 +39,25 @@ export function Sidebar({ workspaceId }: SidebarProps) {
         return
       }
 
+      // First get the user's channel memberships
+      const { data: memberships, error: membershipError } = await supabase
+        .from('memberships')
+        .select('channel_id')
+        .eq('user_id', session.user.id)
+
+      if (membershipError) {
+        toast.error('Error loading memberships: ' + membershipError.message)
+        return
+      }
+
+      const channelIds = memberships?.map(m => m.channel_id) || []
+
+      // Then get the channels
       const { data, error } = await supabase
         .from('channels')
         .select('id, channel_name')
         .eq('workspace_id', workspaceId)
+        .in('id', channelIds)
         .order('channel_name')
 
       if (error) {

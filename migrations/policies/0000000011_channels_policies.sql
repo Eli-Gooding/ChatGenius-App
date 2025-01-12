@@ -1,9 +1,11 @@
 -- migrate:up
+-- Anyone can view public channels
 CREATE POLICY "Users can view public channels"
 ON public.channels FOR SELECT
 TO authenticated
 USING (is_private = false);
 
+-- Members can view private channels
 CREATE POLICY "Members can view private channels"
 ON public.channels FOR SELECT
 TO authenticated
@@ -15,11 +17,13 @@ USING (
     )
 );
 
+-- Anyone can create channels (workspace validation in application)
 CREATE POLICY "Users can create channels in workspaces"
 ON public.channels FOR INSERT
 TO authenticated
 WITH CHECK (true);
 
+-- Only creators can update their channels
 CREATE POLICY "Channel creators can update their channels"
 ON public.channels FOR UPDATE
 TO authenticated
