@@ -35,6 +35,9 @@ ON public.memberships FOR DELETE
 TO authenticated
 USING (user_id = auth.uid());
 
+-- Grant basic table permissions to authenticated users
+GRANT SELECT, INSERT, DELETE ON public.memberships TO authenticated;
+
 -- migrate:down
 DROP POLICY IF EXISTS "Users can view all memberships" ON public.memberships;
 DROP POLICY IF EXISTS "Users can join public channels" ON public.memberships;
