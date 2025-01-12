@@ -1,6 +1,6 @@
 -- migrate:up
--- Allow all authenticated users to view workspaces
-CREATE POLICY "Enable read access for all authenticated users"
+-- Allow authenticated users to view all workspaces
+CREATE POLICY "Enable read access for authenticated users"
 ON public.workspaces FOR SELECT
 TO authenticated
 USING (true);
@@ -25,7 +25,7 @@ TO authenticated
 USING (created_by = auth.uid());
 
 -- migrate:down
-DROP POLICY IF EXISTS "Enable read access for all authenticated users" ON public.workspaces;
+DROP POLICY IF EXISTS "Enable read access for authenticated users" ON public.workspaces;
 DROP POLICY IF EXISTS "Enable insert for authenticated users" ON public.workspaces;
 DROP POLICY IF EXISTS "Enable update for workspace creators" ON public.workspaces;
 DROP POLICY IF EXISTS "Enable delete for workspace creators" ON public.workspaces; 

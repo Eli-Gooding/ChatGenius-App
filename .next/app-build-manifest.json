@@ -20,6 +20,11 @@
       "static/chunks/webpack.js",
       "static/chunks/main-app.js",
       "static/chunks/app/auth/callback/route.js"
+    ],
+    "/workspace/[workspaceId]/page": [
+      "static/chunks/webpack.js",
+      "static/chunks/main-app.js",
+      "static/chunks/app/workspace/[workspaceId]/page.js"
     ]
   }
 }

@@ -23,30 +23,28 @@ export default function WorkspacesPage() {
   const [workspaces, setWorkspaces] = useState<Workspace[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const router = useRouter()
+  
+  // Log when the client is created
+  console.log('Creating Supabase client')
   const supabase = createClientComponentClient()
+  console.log('Supabase client created:', supabase)
 
   useEffect(() => {
     const fetchWorkspaces = async () => {
       try {
-        // First check if we have a session
-        const { data: { session }, error: sessionError } = await supabase.auth.getSession()
-        if (sessionError) {
-          toast.error('Session error: ' + sessionError.message)
-          router.push('/')
-          return
-        }
-        
-        if (!session) {
-          toast.error('Please sign in to continue')
-          router.push('/')
-          return
-        }
+        // Check auth state first
+        const { data: { session }, error: authError } = await supabase.auth.getSession()
+        console.log('Auth session:', session)
+        console.log('Auth error:', authError)
 
         // Then fetch workspaces
+        console.log('Fetching workspaces...')
         const { data, error } = await supabase
           .from('workspaces')
           .select('id, workspace_name')
           .order('created_at', { ascending: false })
+
+        console.log('Fetch result:', { data, error })
 
         if (error) {
           toast.error('Error loading workspaces: ' + error.message)
@@ -55,7 +53,7 @@ export default function WorkspacesPage() {
 
         setWorkspaces(data || [])
       } catch (error) {
-        // Only show one error message
+        console.error('Fetch error:', error)
         if (error instanceof Error) {
           toast.error(error.message)
         } else {
@@ -67,59 +65,30 @@ export default function WorkspacesPage() {
     }
 
     fetchWorkspaces()
-  }, [supabase, router])
+  }, [supabase])
 
   const handleCreateWorkspace = async (e: React.FormEvent) => {
     e.preventDefault()
     setIsCreating(true)
     try {
-      const { data: { session }, error: sessionError } = await supabase.auth.getSession()
-      if (sessionError) {
-        toast.error('Session error: ' + sessionError.message)
-        return
-      }
-      
-      if (!session) {
-        toast.error('Please sign in to continue')
-        router.push('/')
-        return
-      }
+      // Log the attempt
+      console.log('Attempting to create workspace:', workspaceName)
 
-      // First ensure the user exists in the users table
-      const { data: existingUser, error: userCheckError } = await supabase
-        .from('users')
-        .select('id')
-        .eq('id', session.user.id)
-        .single()
+      // Check auth state first
+      const { data: { session }, error: authError } = await supabase.auth.getSession()
+      console.log('Create workspace auth session:', session)
+      console.log('Create workspace auth error:', authError)
 
-      if (userCheckError && userCheckError.code === 'PGRST116') {
-        // User doesn't exist, create them
-        const { error: createUserError } = await supabase
-          .from('users')
-          .insert([{
-            id: session.user.id,
-            email: session.user.email,
-            user_name: session.user.email?.split('@')[0]
-          }])
-
-        if (createUserError) {
-          toast.error('Error creating user: ' + createUserError.message)
-          return
-        }
-      } else if (userCheckError) {
-        toast.error('Error checking user: ' + userCheckError.message)
-        return
-      }
-
-      // Now create the workspace
+      // Create the workspace
       const { data: workspace, error: workspaceError } = await supabase
         .from('workspaces')
-        .insert([{ 
-          workspace_name: workspaceName,
-          created_by: session.user.id
-        }])
-        .select()
+        .insert({ 
+          workspace_name: workspaceName
+        })
+        .select('id')
         .single()
+
+      console.log('Create workspace result:', { workspace, workspaceError })
 
       if (workspaceError) {
         toast.error('Error creating workspace: ' + workspaceError.message)
@@ -129,6 +98,7 @@ export default function WorkspacesPage() {
       setOpen(false)
       router.push(`/workspace/${workspace.id}`)
     } catch (error: any) {
+      console.error('Create error:', error)
       toast.error(error.message || 'Error creating workspace')
     } finally {
       setIsCreating(false)
