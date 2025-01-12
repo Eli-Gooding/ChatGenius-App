@@ -79,11 +79,17 @@ export default function WorkspacesPage() {
       console.log('Create workspace auth session:', session)
       console.log('Create workspace auth error:', authError)
 
+      if (!session) {
+        toast.error('Please sign in to create a workspace')
+        return
+      }
+
       // Create the workspace
       const { data: workspace, error: workspaceError } = await supabase
         .from('workspaces')
         .insert({ 
-          workspace_name: workspaceName
+          workspace_name: workspaceName,
+          created_by: session.user.id
         })
         .select('id')
         .single()
