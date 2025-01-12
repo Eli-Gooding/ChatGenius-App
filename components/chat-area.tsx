@@ -58,90 +58,89 @@ function ChatArea({ channelName, userName, channelId }: ChatAreaProps) {
     // Initial fetch of messages
     fetchMessages();
 
-    // Subscribe to new messages
-    const messageChannel = supabase
-      .channel(`messages:${channelId}`)
+    // Subscribe to new messages and reactions
+    const channel = supabase
+      .channel('db-changes')
       .on(
         'postgres_changes',
         {
-          event: 'INSERT',
+          event: '*',
           schema: 'public',
           table: 'messages',
-          filter: `channel_id=eq.${channelId}`,
+          filter: `channel_id=eq.${channelId}`
         },
         async (payload) => {
-          // Fetch the complete message with user data
-          const { data: rawData, error } = await supabase
-            .from('messages')
-            .select(`
-              id,
-              user_id,
-              content,
-              created_at,
-              users:users!messages_user_id_fkey (
-                user_name,
-                avatar_url
-              ),
-              reactions (
-                emoji,
-                user_id
-              )
-            `)
-            .eq('id', payload.new.id)
-            .single();
+          console.log('Message change received:', payload);
+          
+          if (payload.eventType === 'INSERT') {
+            // Fetch the complete message with user data
+            const { data: messageData, error } = await supabase
+              .from('messages')
+              .select(`
+                id,
+                user_id,
+                content,
+                created_at,
+                users:users!messages_user_id_fkey (
+                  user_name,
+                  avatar_url
+                ),
+                reactions (
+                  emoji,
+                  user_id
+                )
+              `)
+              .eq('id', payload.new.id)
+              .single();
 
-          if (error || !rawData) {
-            console.error('Error fetching new message:', error);
-            return;
+            if (error) {
+              console.error('Error fetching message data:', error);
+              return;
+            }
+
+            const newMessage: Message = {
+              id: messageData.id,
+              user_id: messageData.user_id,
+              content: messageData.content,
+              created_at: messageData.created_at,
+              replies: [],
+              reactions: messageData.reactions?.reduce((acc, reaction) => {
+                acc[reaction.emoji] = (acc[reaction.emoji] || 0) + 1;
+                return acc;
+              }, {} as { [key: string]: number }) || {},
+              user: messageData.users as unknown as MessageUser
+            };
+
+            setMessages(prev => [...prev, newMessage]);
           }
-
-          const messageData = rawData as unknown as DatabaseMessageRow;
-
-          // Process reactions
-          const reactions = messageData.reactions?.reduce((acc, reaction) => {
-            acc[reaction.emoji] = (acc[reaction.emoji] || 0) + 1;
-            return acc;
-          }, {} as { [key: string]: number }) || {};
-
-          // Add the new message to the state
-          setMessages(prev => [...prev, {
-            id: messageData.id,
-            user_id: messageData.user_id,
-            content: messageData.content,
-            created_at: messageData.created_at,
-            replies: [],
-            reactions,
-            user: messageData.users
-          }]);
         }
-      );
-
-    // Subscribe to reaction changes
-    const reactionChannel = supabase
-      .channel(`reactions:${channelId}`)
+      )
       .on(
         'postgres_changes',
         {
-          event: '*', // Listen to all changes (INSERT, UPDATE, DELETE)
+          event: '*',
           schema: 'public',
-          table: 'reactions',
-          filter: `message_id=in.(${messages.map(m => m.id).join(',')})`,
+          table: 'reactions'
         },
-        () => {
-          // Refresh messages to get updated reactions
-          fetchMessages();
+        (payload) => {
+          console.log('Reaction change received:', payload);
+          fetchMessages(); // Refresh messages to get updated reactions
         }
       );
 
-    // Start both subscriptions
-    messageChannel.subscribe();
-    reactionChannel.subscribe();
+    // Subscribe and log status
+    channel.subscribe((status) => {
+      console.log('Realtime subscription status:', status);
+      if (status === 'SUBSCRIBED') {
+        console.log('Successfully subscribed to database changes');
+      }
+    });
 
     return () => {
-      supabase.removeChannel(messageChannel);
-      supabase.removeChannel(reactionChannel);
+      console.log('Cleaning up realtime subscription');
+      channel.unsubscribe();
     };
-  }, [channelId, messages.map(m => m.id).join(',')]);
+  }, [channelId]);
 
   const fetchMessages = async () => {
     try {
@@ -247,26 +246,28 @@ function ChatArea({ channelName, userName, channelId }: ChatAreaProps) {
   const placeholder = channelName ? `Message #${channelName}` : `Message ${userName}`;
 
   return (
-    <div className="flex-1 flex bg-white">
+    <div className="flex-1 flex bg-white h-[calc(100vh-4rem)]">
       <div className="flex-1 flex flex-col">
-        <ScrollArea className="flex-1 p-4">
-          <div className="space-y-4">
-            {isLoading ? (
-              <div className="text-center text-gray-500">Loading messages...</div>
-            ) : messages.length === 0 ? (
-              <div className="text-center text-gray-500">No messages yet</div>
-            ) : (
-              messages.map((message) => (
-                <MessageItem
-                  key={message.id}
-                  message={message}
-                  toggleEmoji={toggleEmoji}
-                  openThread={setActiveThread}
-                />
-              ))
-            )}
-          </div>
-        </ScrollArea>
+        <div className="flex-1 min-h-0">
+          <ScrollArea className="h-full">
+            <div className="space-y-4 p-4">
+              {isLoading ? (
+                <div className="text-center text-gray-500">Loading messages...</div>
+              ) : messages.length === 0 ? (
+                <div className="text-center text-gray-500">No messages yet</div>
+              ) : (
+                messages.map((message) => (
+                  <MessageItem
+                    key={message.id}
+                    message={message}
+                    toggleEmoji={toggleEmoji}
+                    openThread={setActiveThread}
+                  />
+                ))
+              )}
+            </div>
+          </ScrollArea>
+        </div>
         <MessageInput 
           placeholder={placeholder} 
           channelId={channelId} 
@@ -274,30 +275,34 @@ function ChatArea({ channelName, userName, channelId }: ChatAreaProps) {
         />
       </div>
       {activeThread && (
-        <div className="w-96 border-l border-gray-200 flex flex-col">
+        <div className="w-96 flex flex-col border-l">
           <div className="p-4 border-b border-gray-200 flex justify-between items-center">
             <h3 className="font-semibold">Thread</h3>
             <Button variant="ghost" size="icon" onClick={() => setActiveThread(null)}>
               <X className="h-4 w-4" />
             </Button>
           </div>
-          <ScrollArea className="flex-1 p-4">
-            <MessageItem
-              message={activeThread}
-              toggleEmoji={toggleEmoji}
-              openThread={setActiveThread}
-              isThreadView
-            />
-            {activeThread.replies?.map((reply) => (
-              <MessageItem
-                key={reply.id}
-                message={reply}
-                toggleEmoji={toggleEmoji}
-                openThread={setActiveThread}
-                isThreadView
-              />
-            ))}
-          </ScrollArea>
+          <div className="flex-1 min-h-0">
+            <ScrollArea className="h-full">
+              <div className="space-y-4 p-4">
+                <MessageItem
+                  message={activeThread}
+                  toggleEmoji={toggleEmoji}
+                  openThread={setActiveThread}
+                  isThreadView
+                />
+                {activeThread.replies?.map((reply) => (
+                  <MessageItem
+                    key={reply.id}
+                    message={reply}
+                    toggleEmoji={toggleEmoji}
+                    openThread={setActiveThread}
+                    isThreadView
+                  />
+                ))}
+              </div>
+            </ScrollArea>
+          </div>
           <MessageInput 
             placeholder="Reply in thread" 
             channelId={channelId}
