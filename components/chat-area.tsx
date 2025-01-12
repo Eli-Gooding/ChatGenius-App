@@ -5,12 +5,15 @@ import { ScrollArea } from "@/components/ui/scroll-area"
 import * as ScrollAreaPrimitive from "@radix-ui/react-scroll-area"
 import { Button } from "@/components/ui/button"
 import { Textarea } from "@/components/ui/textarea"
-import { Bold, Italic, LinkIcon, Smile, Paperclip, MessageSquare, X, Send, Code, ListOrdered, ListOrderedIcon } from 'lucide-react'
+import { Bold, Italic, LinkIcon, Smile, Paperclip, MessageSquare, X, Send, Code, Underline as UnderlineIcon } from 'lucide-react'
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import ReactMarkdown from 'react-markdown'
 import { createClientComponentClient } from '@supabase/auth-helpers-nextjs'
 import { toast } from 'sonner'
+import { Editor as TipTapEditor, EditorContent, useEditor } from '@tiptap/react'
+import StarterKit from '@tiptap/starter-kit'
+import Underline from '@tiptap/extension-underline'
 
 interface MessageUser {
   user_name: string;
@@ -29,6 +32,7 @@ interface DatabaseMessageRow {
   created_at: string;
   users: MessageUser;
   reactions: DatabaseReaction[] | null;
+  has_reply: boolean;
 }
 
 interface Message {
@@ -39,6 +43,7 @@ interface Message {
   user: MessageUser;
   replies: Message[];
   reactions?: { [key: string]: number };
+  has_reply?: boolean;
 }
 
 interface MembershipWithUser {
@@ -240,6 +245,7 @@ function ChatArea({ channelName, userName, channelId, isDirectMessage }: ChatAre
                 user_id: payload.new.user_id,
                 content: payload.new.content,
                 created_at: payload.new.created_at,
+                has_reply: payload.new.has_reply || false,
                 replies: [],
                 reactions: {},
                 user: userData
@@ -258,6 +264,8 @@ function ChatArea({ channelName, userName, channelId, isDirectMessage }: ChatAre
               // If it's a reply to the active thread, refresh thread replies
               const replies = await fetchThreadReplies(activeThread.id);
               setActiveThread(prev => prev ? { ...prev, replies } : null);
+              // Also refresh the main messages to update has_reply status
+              fetchMessages();
             }
           }
         }
@@ -321,6 +329,7 @@ function ChatArea({ channelName, userName, channelId, isDirectMessage }: ChatAre
           user_id,
           content,
           created_at,
+          has_reply,
           users:users!messages_user_id_fkey (
             user_name,
             avatar_url
@@ -347,6 +356,7 @@ function ChatArea({ channelName, userName, channelId, isDirectMessage }: ChatAre
         user_id: msg.user_id,
         content: msg.content,
         created_at: msg.created_at,
+        has_reply: msg.has_reply,
         replies: [],
         reactions: msg.reactions?.reduce((acc, reaction) => {
           acc[reaction.emoji] = (acc[reaction.emoji] || 0) + 1;
@@ -608,10 +618,15 @@ function MessageItem({ message, toggleEmoji, openThread, isThreadView }: Message
             <MessageSquare className="h-4 w-4 mr-1" />
             Reply
           </Button>
-          {!isThreadView && message.replies?.length > 0 && (
-            <Button variant="ghost" size="sm" className="opacity-0 group-hover:opacity-100" onClick={() => openThread(message)}>
+          {!isThreadView && message.has_reply && (
+            <Button 
+              variant="ghost" 
+              size="sm" 
+              className="text-purple-700 hover:text-purple-800 hover:bg-purple-50"
+              onClick={() => openThread(message)}
+            >
               <MessageSquare className="h-4 w-4 mr-1" />
-              {message.replies.length} {message.replies.length === 1 ? 'reply' : 'replies'}
+              See Replies
             </Button>
           )}
         </div>
@@ -629,12 +644,26 @@ interface MessageInputProps {
 
 function MessageInput({ placeholder, channelId, parentMessageId, onMessageSent }: MessageInputProps) {
   const [isFocused, setIsFocused] = useState(false);
-  const [messageContent, setMessageContent] = useState('');
   const [isSending, setIsSending] = useState(false);
   const supabase = createClientComponentClient();
 
+  const editor = useEditor({
+    extensions: [
+      StarterKit.configure(),
+      Underline.configure(),
+    ],
+    editorProps: {
+      attributes: {
+        class: 'prose prose-sm focus:outline-none min-h-[60px] px-3 py-2',
+      },
+    },
+    content: '',
+    onFocus: () => setIsFocused(true),
+    onBlur: () => setIsFocused(false),
+  });
+
   const sendMessage = async () => {
-    if (!messageContent.trim() || !channelId) return;
+    if (!editor?.getText().trim() || !channelId) return;
 
     try {
       setIsSending(true);
@@ -644,12 +673,26 @@ function MessageInput({ placeholder, channelId, parentMessageId, onMessageSent }
         return;
       }
 
+      // Convert the rich text content to markdown
+      const markdown = editor.getHTML()
+        .replace(/<strong>/g, '**')
+        .replace(/<\/strong>/g, '**')
+        .replace(/<em>/g, '*')
+        .replace(/<\/em>/g, '*')
+        .replace(/<u>/g, '__')
+        .replace(/<\/u>/g, '__')
+        .replace(/<code>/g, '`')
+        .replace(/<\/code>/g, '`')
+        .replace(/<p>/g, '')
+        .replace(/<\/p>/g, '\n')
+        .trim();
+
       const { error } = await supabase
         .from('messages')
         .insert({
           channel_id: channelId,
           user_id: session.user.id,
-          content: messageContent,
+          content: markdown,
           parent_message_id: parentMessageId
         });
 
@@ -658,7 +701,7 @@ function MessageInput({ placeholder, channelId, parentMessageId, onMessageSent }
         return;
       }
 
-      setMessageContent('');
+      editor?.commands.setContent('');
       onMessageSent();
     } catch (error) {
       console.error('Send error:', error);
@@ -671,70 +714,71 @@ function MessageInput({ placeholder, channelId, parentMessageId, onMessageSent }
   };
 
   const applyFormatting = (format: string) => {
-    const textarea = document.querySelector('textarea');
-    if (!textarea) return;
+    if (!editor) return;
 
-    const start = textarea.selectionStart;
-    const end = textarea.selectionEnd;
-    const selectedText = messageContent.substring(start, end);
-
-    let formattedText = '';
     switch (format) {
       case 'bold':
-        formattedText = `**${selectedText}**`;
+        editor.chain().focus().toggleBold().run();
         break;
       case 'italic':
-        formattedText = `*${selectedText}*`;
+        editor.chain().focus().toggleItalic().run();
         break;
-      case 'link':
-        formattedText = `[${selectedText}](url)`;
+      case 'underline':
+        editor.chain().focus().toggleUnderline().run();
         break;
       case 'code':
-        formattedText = `\`${selectedText}\``;
-        break;
-      case 'orderedList':
-        formattedText = `1. ${selectedText}`;
-        break;
-      case 'unorderedList':
-        formattedText = `- ${selectedText}`;
+        editor.chain().focus().toggleCode().run();
         break;
     }
-
-    const newContent = messageContent.substring(0, start) + formattedText + messageContent.substring(end);
-    setMessageContent(newContent);
-
-    // Set focus back to textarea and update cursor position
-    setTimeout(() => {
-      textarea.focus();
-      textarea.setSelectionRange(start + formattedText.length, start + formattedText.length);
-    }, 0);
   };
 
-  const addEmoji = (emoji: string) => {
-    setMessageContent(messageContent + emoji);
-  };
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Enter' && !e.shiftKey && editor?.isFocused) {
+        e.preventDefault();
+        sendMessage();
+      }
+    };
+
+    document.addEventListener('keydown', handleKeyDown);
+    return () => document.removeEventListener('keydown', handleKeyDown);
+  }, [editor]);
 
   return (
     <div className="p-4 border-t">
       <div className="mb-2 flex items-center justify-between p-2 bg-gray-50 rounded-lg">
         <div className="flex items-center gap-1">
-          <Button variant="ghost" size="icon" className="h-8 w-8 text-purple-700" onClick={() => applyFormatting('bold')}>
+          <Button 
+            variant="ghost" 
+            size="icon" 
+            className={`h-8 w-8 ${editor?.isActive('bold') ? 'bg-purple-100 text-purple-900' : 'text-purple-700'}`}
+            onClick={() => applyFormatting('bold')}
+          >
             <Bold className="h-4 w-4" />
           </Button>
-          <Button variant="ghost" size="icon" className="h-8 w-8 text-purple-700" onClick={() => applyFormatting('italic')}>
+          <Button 
+            variant="ghost" 
+            size="icon" 
+            className={`h-8 w-8 ${editor?.isActive('italic') ? 'bg-purple-100 text-purple-900' : 'text-purple-700'}`}
+            onClick={() => applyFormatting('italic')}
+          >
             <Italic className="h-4 w-4" />
           </Button>
-          <Button variant="ghost" size="icon" className="h-8 w-8 text-purple-700" onClick={() => applyFormatting('link')}>
-            <LinkIcon className="h-4 w-4" />
+          <Button 
+            variant="ghost" 
+            size="icon" 
+            className={`h-8 w-8 ${editor?.isActive('underline') ? 'bg-purple-100 text-purple-900' : 'text-purple-700'}`}
+            onClick={() => applyFormatting('underline')}
+          >
+            <UnderlineIcon className="h-4 w-4" />
           </Button>
-          <Button variant="ghost" size="icon" className="h-8 w-8 text-purple-700" onClick={() => applyFormatting('code')}>
+          <Button 
+            variant="ghost" 
+            size="icon" 
+            className={`h-8 w-8 ${editor?.isActive('code') ? 'bg-purple-100 text-purple-900' : 'text-purple-700'}`}
+            onClick={() => applyFormatting('code')}
+          >
             <Code className="h-4 w-4" />
-          </Button>
-          <Button variant="ghost" size="icon" className="h-8 w-8 text-purple-700" onClick={() => applyFormatting('orderedList')}>
-            <ListOrdered className="h-4 w-4" />
-          </Button>
-          <Button variant="ghost" size="icon" className="h-8 w-8 text-purple-700" onClick={() => applyFormatting('unorderedList')}>
-            <ListOrderedIcon className="h-4 w-4" />
           </Button>
         </div>
         <Button 
@@ -742,37 +786,22 @@ function MessageInput({ placeholder, channelId, parentMessageId, onMessageSent }
           size="sm" 
           className="bg-purple-700 hover:bg-purple-800 text-white px-3 py-1"
           onClick={sendMessage}
-          disabled={isSending || !messageContent.trim()}
+          disabled={isSending || !editor?.getText().trim()}
         >
           <Send className="h-4 w-4 mr-1" />
           {isSending ? 'Sending...' : 'Send'}
         </Button>
       </div>
       <div className={`rounded-lg transition-shadow duration-200 ${
-        isFocused || messageContent.length > 0
+        isFocused || editor?.getText().length
           ? 'ring-2 ring-purple-700'
           : 'ring-1 ring-gray-200'
       }`}>
-        <Textarea
-          placeholder={placeholder}
-          className="border-0 resize-none focus-visible:ring-0"
-          onFocus={() => setIsFocused(true)}
-          onBlur={() => setIsFocused(false)}
-          value={messageContent}
-          onChange={(e) => setMessageContent(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter' && !e.shiftKey) {
-              e.preventDefault();
-              sendMessage();
-            }
-          }}
+        <EditorContent 
+          editor={editor} 
+          className="min-h-[60px] focus-within:outline-none"
         />
       </div>
-      {messageContent && (
-        <div className="mt-2 p-2 bg-gray-50 rounded-lg">
-          <ReactMarkdown>{messageContent}</ReactMarkdown>
-        </div>
-      )}
     </div>
   );
 }
