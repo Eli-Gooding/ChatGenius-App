@@ -1,7 +1,7 @@
 "use client"
 
 import Link from 'next/link'
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { Hash, ChevronDown, Plus, Users } from 'lucide-react'
 import { Button } from "@/components/ui/button"
 import { ScrollArea } from "@/components/ui/scroll-area"
@@ -9,21 +9,70 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { ProfilePopover } from "./profile-popover"
 import { WorkspaceSwitcher } from "./workspace-switcher"
+import { ChannelDialog } from "./channel-dialog"
+import { createClientComponentClient } from '@supabase/auth-helpers-nextjs'
+import { toast } from 'sonner'
 
-const channels = ['general', 'random', 'development']
-const allUsers = ['User 1', 'User 2', 'User 3', 'User 4', 'User 5', 'User 6', 'User 7', 'User 8']
+interface Channel {
+  id: string
+  channel_name: string
+}
 
 interface SidebarProps {
   workspaceId: string
 }
 
 export function Sidebar({ workspaceId }: SidebarProps) {
+  const [channels, setChannels] = useState<Channel[]>([])
+  const [isLoading, setIsLoading] = useState(true)
   const [directMessages, setDirectMessages] = useState(['User 1', 'User 2', 'User 3'])
+  const [channelDialogOpen, setChannelDialogOpen] = useState(false)
+  const [channelDialogMode, setChannelDialogMode] = useState<'join' | 'create'>('join')
+  const supabase = createClientComponentClient()
+
+  const fetchUserChannels = async () => {
+    try {
+      setIsLoading(true)
+      const { data: { session }, error: authError } = await supabase.auth.getSession()
+      if (!session) {
+        toast.error('Please sign in to view channels')
+        return
+      }
+
+      const { data, error } = await supabase
+        .from('channels')
+        .select('id, channel_name')
+        .eq('workspace_id', workspaceId)
+        .order('channel_name')
+
+      if (error) {
+        toast.error('Error loading channels: ' + error.message)
+        return
+      }
+
+      setChannels(data || [])
+    } catch (error) {
+      console.error('Fetch error:', error)
+      if (error instanceof Error) {
+        toast.error(error.message)
+      }
+    } finally {
+      setIsLoading(false)
+    }
+  }
+
+  useEffect(() => {
+    fetchUserChannels()
+  }, [workspaceId])
 
   const addDirectMessage = (user: string) => {
     if (!directMessages.includes(user)) {
       setDirectMessages([...directMessages, user])
     }
+  }
+
+  const handleChannelAction = (channelId: string) => {
+    fetchUserChannels() // Refresh the channel list
   }
 
   return (
@@ -42,11 +91,25 @@ export function Sidebar({ workspaceId }: SidebarProps) {
                 </PopoverTrigger>
                 <PopoverContent className="w-48">
                   <div className="flex flex-col space-y-2">
-                    <Button variant="ghost" className="justify-start">
+                    <Button 
+                      variant="ghost" 
+                      className="justify-start"
+                      onClick={() => {
+                        setChannelDialogMode('join')
+                        setChannelDialogOpen(true)
+                      }}
+                    >
                       <Hash className="mr-2 h-4 w-4" />
                       Join Channel
                     </Button>
-                    <Button variant="ghost" className="justify-start">
+                    <Button 
+                      variant="ghost" 
+                      className="justify-start"
+                      onClick={() => {
+                        setChannelDialogMode('create')
+                        setChannelDialogOpen(true)
+                      }}
+                    >
                       <Plus className="mr-2 h-4 w-4" />
                       Create Channel
                     </Button>
@@ -55,14 +118,20 @@ export function Sidebar({ workspaceId }: SidebarProps) {
               </Popover>
             </div>
             <nav className="space-y-1">
-              {channels.map((channel) => (
-                <Button key={channel} variant="ghost" className="w-full justify-start text-purple-700" asChild>
-                  <Link href={`/workspace/${workspaceId}/channel/${channel}`}>
-                    <Hash className="mr-2 h-4 w-4" />
-                    {channel}
-                  </Link>
-                </Button>
-              ))}
+              {isLoading ? (
+                <div className="text-center text-sm text-purple-700 py-2">Loading channels...</div>
+              ) : channels.length === 0 ? (
+                <div className="text-center text-sm text-purple-700 py-2">No channels yet</div>
+              ) : (
+                channels.map((channel) => (
+                  <Button key={channel.id} variant="ghost" className="w-full justify-start text-purple-700" asChild>
+                    <Link href={`/workspace/${workspaceId}/channel/${channel.id}`}>
+                      <Hash className="mr-2 h-4 w-4" />
+                      {channel.channel_name}
+                    </Link>
+                  </Button>
+                ))
+              )}
             </nav>
           </div>
           <div className="mt-4">
@@ -77,7 +146,7 @@ export function Sidebar({ workspaceId }: SidebarProps) {
                 <PopoverContent className="w-48">
                   <ScrollArea className="h-72">
                     <div className="flex flex-col space-y-2">
-                      {allUsers.map((user) => (
+                      {['User 1', 'User 2', 'User 3', 'User 4', 'User 5'].map((user) => (
                         <Button key={user} variant="ghost" className="justify-start" onClick={() => addDirectMessage(user)}>
                           <div className="w-2 h-2 rounded-full bg-green-500 mr-2" />
                           {user}
@@ -104,6 +173,14 @@ export function Sidebar({ workspaceId }: SidebarProps) {
       <div className="p-4 border-t">
         <ProfilePopover />
       </div>
+
+      <ChannelDialog
+        isOpen={channelDialogOpen}
+        onClose={() => setChannelDialogOpen(false)}
+        workspaceId={workspaceId}
+        mode={channelDialogMode}
+        onChannelAction={handleChannelAction}
+      />
     </div>
   )
 }
