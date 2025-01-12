@@ -1,8 +1,7 @@
 {
-  "/_not-found/page": "app/_not-found/page.js",
   "/page": "app/page.js",
-  "/workspaces/page": "app/workspaces/page.js",
-  "/workspace/[workspaceId]/page": "app/workspace/[workspaceId]/page.js",
   "/workspace/[workspaceId]/channel/[channelId]/page": "app/workspace/[workspaceId]/channel/[channelId]/page.js",
+  "/workspace/[workspaceId]/page": "app/workspace/[workspaceId]/page.js",
+  "/workspaces/page": "app/workspaces/page.js",
   "/workspace/[workspaceId]/dm/[userId]/page": "app/workspace/[workspaceId]/dm/[userId]/page.js"
 }

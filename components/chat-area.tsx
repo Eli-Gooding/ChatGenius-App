@@ -11,15 +11,31 @@ import ReactMarkdown from 'react-markdown'
 import { createClientComponentClient } from '@supabase/auth-helpers-nextjs'
 import { toast } from 'sonner'
 
+interface MessageUser {
+  user_name: string;
+  avatar_url: string | null;
+}
+
+interface DatabaseReaction {
+  emoji: string;
+  user_id: string;
+}
+
+interface DatabaseMessageRow {
+  id: string;
+  user_id: string;
+  content: string;
+  created_at: string;
+  users: MessageUser;
+  reactions: DatabaseReaction[] | null;
+}
+
 interface Message {
   id: string;
   user_id: string;
   content: string;
   created_at: string;
-  user: {
-    user_name: string;
-    avatar_url: string | null;
-  };
+  user: MessageUser;
   replies: Message[];
   reactions?: { [key: string]: number };
 }
@@ -43,8 +59,8 @@ function ChatArea({ channelName, userName, channelId }: ChatAreaProps) {
     fetchMessages();
 
     // Subscribe to new messages
-    const channel = supabase
-      .channel(`channel:${channelId}`)
+    const messageChannel = supabase
+      .channel(`messages:${channelId}`)
       .on(
         'postgres_changes',
         {
@@ -53,17 +69,79 @@ function ChatArea({ channelName, userName, channelId }: ChatAreaProps) {
           table: 'messages',
           filter: `channel_id=eq.${channelId}`,
         },
-        (payload) => {
-          const newMessage = payload.new as Message;
-          setMessages((prev) => [...prev, { ...newMessage, replies: [], user: { user_name: '', avatar_url: null } }]);
+        async (payload) => {
+          // Fetch the complete message with user data
+          const { data: rawData, error } = await supabase
+            .from('messages')
+            .select(`
+              id,
+              user_id,
+              content,
+              created_at,
+              users:users!messages_user_id_fkey (
+                user_name,
+                avatar_url
+              ),
+              reactions (
+                emoji,
+                user_id
+              )
+            `)
+            .eq('id', payload.new.id)
+            .single();
+
+          if (error || !rawData) {
+            console.error('Error fetching new message:', error);
+            return;
+          }
+
+          const messageData = rawData as unknown as DatabaseMessageRow;
+
+          // Process reactions
+          const reactions = messageData.reactions?.reduce((acc, reaction) => {
+            acc[reaction.emoji] = (acc[reaction.emoji] || 0) + 1;
+            return acc;
+          }, {} as { [key: string]: number }) || {};
+
+          // Add the new message to the state
+          setMessages(prev => [...prev, {
+            id: messageData.id,
+            user_id: messageData.user_id,
+            content: messageData.content,
+            created_at: messageData.created_at,
+            replies: [],
+            reactions,
+            user: messageData.users
+          }]);
         }
-      )
-      .subscribe();
+      );
+
+    // Subscribe to reaction changes
+    const reactionChannel = supabase
+      .channel(`reactions:${channelId}`)
+      .on(
+        'postgres_changes',
+        {
+          event: '*', // Listen to all changes (INSERT, UPDATE, DELETE)
+          schema: 'public',
+          table: 'reactions',
+          filter: `message_id=in.(${messages.map(m => m.id).join(',')})`,
+        },
+        () => {
+          // Refresh messages to get updated reactions
+          fetchMessages();
+        }
+      );
+
+    // Start both subscriptions
+    messageChannel.subscribe();
+    reactionChannel.subscribe();
 
     return () => {
-      supabase.removeChannel(channel);
+      supabase.removeChannel(messageChannel);
+      supabase.removeChannel(reactionChannel);
     };
-  }, [channelId]);
+  }, [channelId, messages.map(m => m.id).join(',')]);
 
   const fetchMessages = async () => {
     try {
@@ -74,16 +152,20 @@ function ChatArea({ channelName, userName, channelId }: ChatAreaProps) {
         return;
       }
 
-      const { data, error } = await supabase
+      const { data: rawData, error } = await supabase
         .from('messages')
         .select(`
           id,
           user_id,
           content,
           created_at,
-          users!messages_user_id_fkey (
+          users:users!messages_user_id_fkey (
             user_name,
             avatar_url
+          ),
+          reactions (
+            emoji,
+            user_id
           )
         `)
         .eq('channel_id', channelId)
@@ -94,13 +176,18 @@ function ChatArea({ channelName, userName, channelId }: ChatAreaProps) {
         return;
       }
 
-      setMessages((data || []).map(msg => ({
-        ...msg,
+      const messagesData = rawData as unknown as DatabaseMessageRow[];
+      setMessages(messagesData.map(msg => ({
+        id: msg.id,
+        user_id: msg.user_id,
+        content: msg.content,
+        created_at: msg.created_at,
         replies: [],
-        user: {
-          user_name: msg.users?.user_name || '',
-          avatar_url: msg.users?.avatar_url
-        }
+        reactions: msg.reactions?.reduce((acc, reaction) => {
+          acc[reaction.emoji] = (acc[reaction.emoji] || 0) + 1;
+          return acc;
+        }, {} as { [key: string]: number }) || {},
+        user: msg.users
       })));
     } catch (error) {
       console.error('Fetch error:', error);
