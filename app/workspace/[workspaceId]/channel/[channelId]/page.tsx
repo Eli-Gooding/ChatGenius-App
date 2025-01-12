@@ -1,13 +1,24 @@
 import { ChannelContent } from "@/components/channel-content"
+import { Suspense } from "react"
 
-interface PageProps {
-  params: {
+type PageProps = {
+  params: Promise<{
     workspaceId: string;
     channelId: string;
-  };
+  }>;
+  searchParams: { [key: string]: string | string[] | undefined };
 }
 
-export default async function ChannelPage({ params }: PageProps) {
-  return <ChannelContent workspaceId={params.workspaceId} channelId={params.channelId} />;
+export default async function ChannelPage(props: PageProps) {
+  const { workspaceId, channelId } = await props.params;
+  
+  return (
+    <Suspense>
+      <ChannelContent 
+        workspaceId={workspaceId} 
+        channelId={channelId} 
+      />
+    </Suspense>
+  );
 }
 

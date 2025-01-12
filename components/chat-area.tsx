@@ -1,7 +1,8 @@
 "use client"
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { ScrollArea } from "@/components/ui/scroll-area"
+import * as ScrollAreaPrimitive from "@radix-ui/react-scroll-area"
 import { Button } from "@/components/ui/button"
 import { Textarea } from "@/components/ui/textarea"
 import { Bold, Italic, LinkIcon, Smile, Paperclip, MessageSquare, X, Send, Code, ListOrdered, ListOrderedIcon } from 'lucide-react'
@@ -50,17 +51,94 @@ function ChatArea({ channelName, userName, channelId }: ChatAreaProps) {
   const [messages, setMessages] = useState<Message[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [activeThread, setActiveThread] = useState<Message | null>(null);
+  const viewportRef = useRef<HTMLDivElement>(null);
+  const [shouldScrollToBottom, setShouldScrollToBottom] = useState(true);
+  const lastScrollPosition = useRef<number>(0);
+  const isInitialLoad = useRef<boolean>(true);
   const supabase = createClientComponentClient();
+
+  // Scroll to bottom
+  const scrollToBottom = () => {
+    if (viewportRef.current) {
+      const viewport = viewportRef.current;
+      requestAnimationFrame(() => {
+        viewport.scrollTop = viewport.scrollHeight;
+      });
+    }
+  };
+
+  // Save scroll position before updates
+  const saveScrollPosition = () => {
+    if (viewportRef.current) {
+      lastScrollPosition.current = viewportRef.current.scrollTop;
+    }
+  };
+
+  // Restore scroll position after updates
+  const restoreScrollPosition = () => {
+    if (viewportRef.current) {
+      requestAnimationFrame(() => {
+        if (isInitialLoad.current || shouldScrollToBottom) {
+          scrollToBottom();
+          isInitialLoad.current = false;
+        } else {
+          viewportRef.current!.scrollTop = lastScrollPosition.current;
+        }
+      });
+    }
+  };
+
+  // Function to check if scroll is near bottom
+  const isNearBottom = () => {
+    const viewport = viewportRef.current;
+    if (!viewport) return true;
+    
+    const threshold = 100; // pixels from bottom
+    const scrollBottom = viewport.scrollHeight - viewport.scrollTop - viewport.clientHeight;
+    return scrollBottom < threshold;
+  };
+
+  // Handle all scroll events
+  const handleScroll = () => {
+    if (viewportRef.current) {
+      setShouldScrollToBottom(isNearBottom());
+      lastScrollPosition.current = viewportRef.current.scrollTop;
+    }
+  };
+
+  // Scroll management after message updates
+  useEffect(() => {
+    if (!isLoading && messages.length > 0) {
+      restoreScrollPosition();
+    }
+  }, [messages, isLoading]);
+
+  // Reset scroll state when changing channels
+  useEffect(() => {
+    isInitialLoad.current = true;
+    setShouldScrollToBottom(true);
+  }, [channelId]);
+
+  // Add scroll event listener
+  useEffect(() => {
+    const viewport = viewportRef.current;
+    if (!viewport) return;
+
+    viewport.addEventListener('scroll', handleScroll, { passive: true });
+    return () => viewport.removeEventListener('scroll', handleScroll);
+  }, []);
 
   useEffect(() => {
     if (!channelId) return;
+    
+    console.log('Setting up real-time subscription for channel:', channelId);
     
     // Initial fetch of messages
     fetchMessages();
 
     // Subscribe to new messages and reactions
     const channel = supabase
-      .channel('db-changes')
+      .channel(`room-${channelId}`)
       .on(
         'postgres_changes',
         {
@@ -73,45 +151,41 @@ function ChatArea({ channelName, userName, channelId }: ChatAreaProps) {
           console.log('Message change received:', payload);
           
           if (payload.eventType === 'INSERT') {
-            // Fetch the complete message with user data
-            const { data: messageData, error } = await supabase
-              .from('messages')
-              .select(`
-                id,
-                user_id,
-                content,
-                created_at,
-                users:users!messages_user_id_fkey (
-                  user_name,
-                  avatar_url
-                ),
-                reactions (
-                  emoji,
-                  user_id
-                )
-              `)
-              .eq('id', payload.new.id)
+            console.log('New message received:', payload.new);
+            
+            // Get the user data in parallel with handling the message
+            const { data: userData, error: userError } = await supabase
+              .from('users')
+              .select('user_name, avatar_url')
+              .eq('id', payload.new.user_id)
               .single();
 
-            if (error) {
-              console.error('Error fetching message data:', error);
+            if (userError) {
+              console.error('Error fetching user data:', userError);
               return;
             }
 
+            console.log('User data fetched:', userData);
+
             const newMessage: Message = {
-              id: messageData.id,
-              user_id: messageData.user_id,
-              content: messageData.content,
-              created_at: messageData.created_at,
+              id: payload.new.id,
+              user_id: payload.new.user_id,
+              content: payload.new.content,
+              created_at: payload.new.created_at,
               replies: [],
-              reactions: messageData.reactions?.reduce((acc, reaction) => {
-                acc[reaction.emoji] = (acc[reaction.emoji] || 0) + 1;
-                return acc;
-              }, {} as { [key: string]: number }) || {},
-              user: messageData.users as unknown as MessageUser
+              reactions: {},
+              user: userData
             };
 
-            setMessages(prev => [...prev, newMessage]);
+            console.log('Adding new message to state:', newMessage);
+            setMessages(prev => {
+              // Check if message already exists
+              if (prev.some(msg => msg.id === newMessage.id)) {
+                console.log('Message already exists, skipping...');
+                return prev;
+              }
+              return [...prev, newMessage];
+            });
           }
         }
       )
@@ -120,31 +194,47 @@ function ChatArea({ channelName, userName, channelId }: ChatAreaProps) {
         {
           event: '*',
           schema: 'public',
-          table: 'reactions'
+          table: 'reactions',
+          filter: `message_id=in.(${messages.map(m => m.id).join(',')})`
         },
         (payload) => {
           console.log('Reaction change received:', payload);
-          fetchMessages(); // Refresh messages to get updated reactions
+          // Refresh messages to get updated reactions
+          fetchMessages();
         }
-      );
+      )
+      .subscribe((status, err) => {
+        console.log('Subscription status:', status, err);
+        if (status === 'SUBSCRIBED') {
+          console.log('Successfully subscribed to real-time changes');
+        }
+        if (status === 'CHANNEL_ERROR') {
+          console.error('Subscription error:', err);
+          // Attempt to resubscribe after a delay
+          setTimeout(() => {
+            console.log('Attempting to resubscribe...');
+            channel.subscribe();
+          }, 1000);
+        }
+        if (status === 'TIMED_OUT') {
+          console.error('Subscription timed out, reconnecting...');
+          channel.subscribe();
+        }
+      });
 
-    // Subscribe and log status
-    channel.subscribe((status) => {
-      console.log('Realtime subscription status:', status);
-      if (status === 'SUBSCRIBED') {
-        console.log('Successfully subscribed to database changes');
-      }
-    });
-
+    // Cleanup function
     return () => {
-      console.log('Cleaning up realtime subscription');
+      console.log('Cleaning up subscription for channel:', channelId);
       channel.unsubscribe();
     };
-  }, [channelId]);
+  }, [channelId, messages]); // Added messages to dependency array for reactions filter
 
   const fetchMessages = async () => {
+    if (!channelId) return;
+    
     try {
-      setIsLoading(true);
+      console.log('Fetching messages for channel:', channelId);
+      saveScrollPosition();
       const { data: { session }, error: authError } = await supabase.auth.getSession();
       if (!session) {
         toast.error('Please sign in to view messages');
@@ -171,12 +261,14 @@ function ChatArea({ channelName, userName, channelId }: ChatAreaProps) {
         .order('created_at', { ascending: true });
 
       if (error) {
+        console.error('Error fetching messages:', error);
         toast.error('Error loading messages: ' + error.message);
         return;
       }
 
+      console.log('Fetched messages:', rawData);
       const messagesData = rawData as unknown as DatabaseMessageRow[];
-      setMessages(messagesData.map(msg => ({
+      const newMessages = messagesData.map(msg => ({
         id: msg.id,
         user_id: msg.user_id,
         content: msg.content,
@@ -187,7 +279,9 @@ function ChatArea({ channelName, userName, channelId }: ChatAreaProps) {
           return acc;
         }, {} as { [key: string]: number }) || {},
         user: msg.users
-      })));
+      }));
+
+      setMessages(newMessages);
     } catch (error) {
       console.error('Fetch error:', error);
       if (error instanceof Error) {
@@ -250,28 +344,33 @@ function ChatArea({ channelName, userName, channelId }: ChatAreaProps) {
       <div className="flex-1 flex flex-col">
         <div className="flex-1 min-h-0">
           <ScrollArea className="h-full">
-            <div className="space-y-4 p-4">
-              {isLoading ? (
-                <div className="text-center text-gray-500">Loading messages...</div>
-              ) : messages.length === 0 ? (
-                <div className="text-center text-gray-500">No messages yet</div>
-              ) : (
-                messages.map((message) => (
-                  <MessageItem
-                    key={message.id}
-                    message={message}
-                    toggleEmoji={toggleEmoji}
-                    openThread={setActiveThread}
-                  />
-                ))
-              )}
-            </div>
+            <ScrollAreaPrimitive.Viewport ref={viewportRef} className="h-full w-full">
+              <div className="space-y-4 p-4">
+                {isLoading ? (
+                  <div className="text-center text-gray-500">Loading messages...</div>
+                ) : messages.length === 0 ? (
+                  <div className="text-center text-gray-500">No messages yet</div>
+                ) : (
+                  messages.map((message) => (
+                    <MessageItem
+                      key={message.id}
+                      message={message}
+                      toggleEmoji={toggleEmoji}
+                      openThread={setActiveThread}
+                    />
+                  ))
+                )}
+              </div>
+            </ScrollAreaPrimitive.Viewport>
           </ScrollArea>
         </div>
         <MessageInput 
           placeholder={placeholder} 
           channelId={channelId} 
-          onMessageSent={fetchMessages}
+          onMessageSent={() => {
+            setShouldScrollToBottom(true);
+            fetchMessages();
+          }}
         />
       </div>
       {activeThread && (
@@ -284,23 +383,25 @@ function ChatArea({ channelName, userName, channelId }: ChatAreaProps) {
           </div>
           <div className="flex-1 min-h-0">
             <ScrollArea className="h-full">
-              <div className="space-y-4 p-4">
-                <MessageItem
-                  message={activeThread}
-                  toggleEmoji={toggleEmoji}
-                  openThread={setActiveThread}
-                  isThreadView
-                />
-                {activeThread.replies?.map((reply) => (
+              <ScrollAreaPrimitive.Viewport className="h-full w-full">
+                <div className="space-y-4 p-4">
                   <MessageItem
-                    key={reply.id}
-                    message={reply}
+                    message={activeThread}
                     toggleEmoji={toggleEmoji}
                     openThread={setActiveThread}
                     isThreadView
                   />
-                ))}
-              </div>
+                  {activeThread.replies?.map((reply) => (
+                    <MessageItem
+                      key={reply.id}
+                      message={reply}
+                      toggleEmoji={toggleEmoji}
+                      openThread={setActiveThread}
+                      isThreadView
+                    />
+                  ))}
+                </div>
+              </ScrollAreaPrimitive.Viewport>
             </ScrollArea>
           </div>
           <MessageInput 
