@@ -6,16 +6,16 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
-import { supabase } from "@/lib/supabase"
+import { createClientComponentClient } from '@supabase/auth-helpers-nextjs'
 import { toast } from "sonner"
 
 export default function LoginPage() {
   const [isNewAccount, setIsNewAccount] = useState(false)
   const [email, setEmail] = useState("")
   const [password, setPassword] = useState("")
-  const [username, setUsername] = useState("")
   const [isLoading, setIsLoading] = useState(false)
   const router = useRouter()
+  const supabase = createClientComponentClient()
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -27,15 +27,14 @@ export default function LoginPage() {
           email,
           password,
           options: {
-            data: {
-              user_name: username,
-            },
-          },
+            emailRedirectTo: `${window.location.origin}/auth/callback`
+          }
         })
 
         if (error) throw error
 
         toast.success("Check your email for the confirmation link!")
+        setIsNewAccount(false)
       } else {
         const { data, error } = await supabase.auth.signInWithPassword({
           email,
@@ -44,9 +43,16 @@ export default function LoginPage() {
 
         if (error) throw error
 
+        // After successful sign in, get the session
+        const { data: { session }, error: sessionError } = await supabase.auth.getSession()
+        if (sessionError) throw sessionError
+        if (!session) throw new Error('No session after sign in')
+
+        console.log('Sign in successful, session:', session)
         router.push("/workspaces")
       }
     } catch (error: any) {
+      console.error('Auth error:', error)
       toast.error(error.message)
     } finally {
       setIsLoading(false)
@@ -60,7 +66,7 @@ export default function LoginPage() {
           <CardTitle>{isNewAccount ? "Create Account" : "Sign In"}</CardTitle>
           <CardDescription>
             {isNewAccount
-              ? "Create a new account to get started"
+              ? "Create a new account to get started. You'll receive a confirmation email."
               : "Sign in to your account to continue"}
           </CardDescription>
         </CardHeader>
@@ -88,19 +94,6 @@ export default function LoginPage() {
                 required
               />
             </div>
-            {isNewAccount && (
-              <div className="space-y-2">
-                <Label htmlFor="username">Username</Label>
-                <Input
-                  id="username"
-                  type="text"
-                  placeholder="Choose a username"
-                  value={username}
-                  onChange={(e) => setUsername(e.target.value)}
-                  required
-                />
-              </div>
-            )}
           </CardContent>
           <CardFooter className="flex flex-col space-y-4">
             <Button type="submit" className="w-full" disabled={isLoading}>
