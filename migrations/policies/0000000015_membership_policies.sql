@@ -5,28 +5,12 @@ ON public.memberships FOR SELECT
 TO authenticated
 USING (true);
 
--- Allow users to join public channels
-CREATE POLICY "Users can join public channels"
+-- Allow users to join channels
+CREATE POLICY "Users can join channels"
 ON public.memberships FOR INSERT
 TO authenticated
 WITH CHECK (
-    EXISTS (
-        SELECT 1 FROM public.channels
-        WHERE id = channel_id
-        AND is_private = false
-    )
-);
-
--- Channel creators can add members to private channels
-CREATE POLICY "Channel creators can add members"
-ON public.memberships FOR INSERT
-TO authenticated
-WITH CHECK (
-    EXISTS (
-        SELECT 1 FROM public.channels
-        WHERE id = channel_id
-        AND created_by = auth.uid()
-    )
+    auth.uid() = user_id
 );
 
 -- Users can leave any channel they're in
@@ -40,6 +24,5 @@ GRANT SELECT, INSERT, DELETE ON public.memberships TO authenticated;
 
 -- migrate:down
 DROP POLICY IF EXISTS "Users can view all memberships" ON public.memberships;
-DROP POLICY IF EXISTS "Users can join public channels" ON public.memberships;
-DROP POLICY IF EXISTS "Channel creators can add members" ON public.memberships;
+DROP POLICY IF EXISTS "Users can join channels" ON public.memberships;
 DROP POLICY IF EXISTS "Users can leave channels" ON public.memberships;
