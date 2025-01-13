@@ -136,7 +136,8 @@ RETURNS TABLE (
 BEGIN
     RETURN QUERY
     WITH user_channels AS (
-        SELECT DISTINCT c.id
+        -- Get all DM channels the current user is a member of
+        SELECT DISTINCT c.id as channel_id
         FROM channels c
         JOIN memberships m ON m.channel_id = c.id
         WHERE c.is_private = true
@@ -151,23 +152,58 @@ BEGIN
             WHERE m3.channel_id = c.id
         ) IN (1, 2)  -- Allow both single-member (self-DM) and two-member channels
     ),
-    other_users AS (
-        SELECT DISTINCT ON (c.id)
-            c.id as channel_id,
-            u.id as other_user_id,
-            u.user_name as other_user_name,
-            u.avatar_url as other_user_avatar_url,
-            (SELECT COUNT(*) = 1 FROM memberships m4 WHERE m4.channel_id = c.id) as is_self_dm
+    channel_members AS (
+        -- Get all members of these channels
+        SELECT 
+            uc.channel_id,
+            u.id as user_id,
+            u.user_name,
+            u.avatar_url,
+            (SELECT COUNT(*) = 1 FROM memberships m4 WHERE m4.channel_id = uc.channel_id) as is_self_dm
         FROM user_channels uc
-        JOIN channels c ON c.id = uc.id
-        JOIN memberships m ON m.channel_id = c.id
+        JOIN memberships m ON m.channel_id = uc.channel_id
         JOIN users u ON u.id = m.user_id
-        WHERE u.id = current_user_id
-        OR u.id != current_user_id
-        ORDER BY c.id, u.id
     )
-    SELECT * FROM other_users
-    ORDER BY other_user_name;
+    SELECT DISTINCT ON (cm.channel_id)
+        cm.channel_id,
+        CASE 
+            WHEN cm.is_self_dm THEN cm.user_id
+            WHEN cm.user_id = current_user_id THEN (
+                SELECT user_id 
+                FROM channel_members cm2
+                WHERE cm2.channel_id = cm.channel_id 
+                AND cm2.user_id != current_user_id
+                LIMIT 1
+            )
+            ELSE cm.user_id
+        END as other_user_id,
+        CASE 
+            WHEN cm.is_self_dm THEN cm.user_name
+            WHEN cm.user_id = current_user_id THEN (
+                SELECT user_name 
+                FROM channel_members cm2
+                WHERE cm2.channel_id = cm.channel_id 
+                AND cm2.user_id != current_user_id
+                LIMIT 1
+            )
+            ELSE cm.user_name
+        END as other_user_name,
+        CASE 
+            WHEN cm.is_self_dm THEN cm.avatar_url
+            WHEN cm.user_id = current_user_id THEN (
+                SELECT avatar_url 
+                FROM channel_members cm2
+                WHERE cm2.channel_id = cm.channel_id 
+                AND cm2.user_id != current_user_id
+                LIMIT 1
+            )
+            ELSE cm.avatar_url
+        END as other_user_avatar_url,
+        cm.is_self_dm
+    FROM channel_members cm
+    ORDER BY cm.channel_id, 
+        CASE WHEN cm.user_id = current_user_id THEN 1 ELSE 0 END,
+        cm.user_name;
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 
