@@ -16,11 +16,6 @@
       "static/chunks/main-app.js",
       "static/chunks/app/workspaces/page.js"
     ],
-    "/auth/callback/route": [
-      "static/chunks/webpack.js",
-      "static/chunks/main-app.js",
-      "static/chunks/app/auth/callback/route.js"
-    ],
     "/workspace/[workspaceId]/page": [
       "static/chunks/webpack.js",
       "static/chunks/main-app.js",
@@ -30,11 +25,6 @@
       "static/chunks/webpack.js",
       "static/chunks/main-app.js",
       "static/chunks/app/workspace/[workspaceId]/channel/[channelId]/page.js"
-    ],
-    "/workspace/[workspaceId]/dm/[userId]/page": [
-      "static/chunks/webpack.js",
-      "static/chunks/main-app.js",
-      "static/chunks/app/workspace/[workspaceId]/dm/[userId]/page.js"
     ]
   }
 }

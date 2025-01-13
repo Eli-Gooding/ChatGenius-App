@@ -1,5 +1,49 @@
 -- migrate:up
 
+-- Function to create a channel and add creator as member atomically
+CREATE OR REPLACE FUNCTION public.create_channel_with_membership(
+    p_channel_name text,
+    p_channel_description text,
+    p_workspace_id uuid,
+    p_is_private boolean
+)
+RETURNS uuid AS $$
+DECLARE
+    v_channel_id uuid;
+BEGIN
+    -- Create the channel
+    INSERT INTO channels (
+        channel_name,
+        channel_description,
+        workspace_id,
+        created_by,
+        is_private
+    )
+    VALUES (
+        p_channel_name,
+        p_channel_description,
+        p_workspace_id,
+        auth.uid(),
+        p_is_private
+    )
+    RETURNING id INTO v_channel_id;
+
+    -- Add creator as member
+    INSERT INTO memberships (
+        channel_id,
+        user_id,
+        user_role
+    )
+    VALUES (
+        v_channel_id,
+        auth.uid(),
+        'admin'
+    );
+
+    RETURN v_channel_id;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
 -- Function to get or create a DM channel between two users in a workspace
 CREATE OR REPLACE FUNCTION public.get_or_create_dm_channel(
     user1_id uuid,
@@ -128,5 +172,6 @@ END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 
 -- migrate:down
+DROP FUNCTION IF EXISTS public.create_channel_with_membership(text, text, uuid, boolean);
 DROP FUNCTION IF EXISTS public.get_or_create_dm_channel(uuid, uuid, uuid);
 DROP FUNCTION IF EXISTS public.get_user_dms(uuid, uuid); 

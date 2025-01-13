@@ -131,40 +131,22 @@ export function ChannelDialog({ isOpen, onClose, workspaceId, mode, onChannelAct
         return
       }
 
-      // Create the channel
+      // Create the channel and add creator as member in one transaction
       const { data: channel, error: channelError } = await supabase
-        .from('channels')
-        .insert({
-          channel_name: channelName,
-          channel_description: channelDescription || null,
-          workspace_id: workspaceId,
-          created_by: session.user.id,
-          is_private: false
+        .rpc('create_channel_with_membership', {
+          p_channel_name: channelName,
+          p_channel_description: channelDescription || null,
+          p_workspace_id: workspaceId,
+          p_is_private: false
         })
-        .select('id')
-        .single()
 
       if (channelError) {
         toast.error('Error creating channel: ' + channelError.message)
         return
       }
 
-      // Add creator as member
-      const { error: membershipError } = await supabase
-        .from('memberships')
-        .insert({
-          channel_id: channel.id,
-          user_id: session.user.id,
-          user_role: 'admin'
-        })
-
-      if (membershipError) {
-        toast.error('Error adding you to channel: ' + membershipError.message)
-        return
-      }
-
       toast.success('Channel created successfully')
-      onChannelAction(channel.id)
+      onChannelAction(channel)
       onClose()
     } catch (error) {
       console.error('Create error:', error)
