@@ -500,8 +500,8 @@ function ChatArea({ channelName, userName, channelId, isDirectMessage, isAIAssis
   };
 
   return (
-    <div className="flex-1 flex flex-col">
-      <div className="border-b p-4 flex justify-between items-center">
+    <div className="flex-1 flex flex-col h-[calc(100vh-4rem)]">
+      <div className="border-b p-4 flex justify-between items-center shrink-0">
         <div>
           <h2 className="text-lg font-semibold">
             {isDirectMessage ? otherUserName : channelName}
@@ -513,9 +513,9 @@ function ChatArea({ channelName, userName, channelId, isDirectMessage, isAIAssis
           )}
         </div>
       </div>
-      <div className="flex-1 flex">
-        <div className={`flex-1 flex flex-col ${activeThread ? 'border-r' : ''}`}>
-          <ScrollArea className="flex-1">
+      <div className="flex-1 flex min-h-0 overflow-hidden">
+        <div className={`flex-1 flex flex-col min-h-0 ${activeThread ? 'border-r' : ''}`}>
+          <ScrollArea className="flex-1 min-h-0 overflow-auto">
             <div ref={viewportRef} className="p-4 space-y-4">
               {isLoading ? (
                 <div className="text-center">Loading messages...</div>
@@ -537,19 +537,21 @@ function ChatArea({ channelName, userName, channelId, isDirectMessage, isAIAssis
               )}
             </div>
           </ScrollArea>
-          <MessageInput
-            placeholder={isAIAssistant 
-              ? "Ask me anything about your workspace..."
-              : "Type a message..."}
-            channelId={channelId}
-            onMessageSent={fetchMessages}
-            isAIAssistant={isAIAssistant}
-            setMessages={setMessages}
-          />
+          <div className="shrink-0 border-t">
+            <MessageInput
+              placeholder={isAIAssistant 
+                ? "Ask me anything about your workspace..."
+                : "Type a message..."}
+              channelId={channelId}
+              onMessageSent={fetchMessages}
+              isAIAssistant={isAIAssistant}
+              setMessages={setMessages}
+            />
+          </div>
         </div>
         {activeThread && (
-          <div className="w-96 flex flex-col">
-            <div className="border-b p-4">
+          <div className="w-96 flex flex-col min-h-0">
+            <div className="border-b p-4 flex justify-between items-center shrink-0">
               <div className="flex justify-between items-center">
                 <h3 className="font-semibold">Thread</h3>
                 <Button
@@ -561,7 +563,7 @@ function ChatArea({ channelName, userName, channelId, isDirectMessage, isAIAssis
                 </Button>
               </div>
             </div>
-            <ScrollArea className="flex-1">
+            <ScrollArea className="flex-1 min-h-0 overflow-auto">
               <div className="p-4 space-y-4">
                 <MessageItem
                   message={activeThread}
@@ -580,12 +582,14 @@ function ChatArea({ channelName, userName, channelId, isDirectMessage, isAIAssis
                 ))}
               </div>
             </ScrollArea>
-            <MessageInput
-              placeholder="Reply to thread..."
-              channelId={channelId}
-              parentMessageId={activeThread.id}
-              onMessageSent={() => handleOpenThread(activeThread)}
-            />
+            <div className="shrink-0 border-t">
+              <MessageInput
+                placeholder="Reply to thread..."
+                channelId={channelId}
+                parentMessageId={activeThread.id}
+                onMessageSent={() => handleOpenThread(activeThread)}
+              />
+            </div>
           </div>
         )}
       </div>
