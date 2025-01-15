@@ -14,6 +14,7 @@ import { toast } from 'sonner'
 import { Editor as TipTapEditor, EditorContent, useEditor } from '@tiptap/react'
 import StarterKit from '@tiptap/starter-kit'
 import Underline from '@tiptap/extension-underline'
+import { FilesSidebar } from './files-sidebar'
 
 interface MessageUser {
   user_name: string;
@@ -72,13 +73,15 @@ interface ChatAreaProps {
   channelId?: string;
   isDirectMessage?: boolean;
   isAIAssistant?: boolean;
+  workspaceId?: string;
 }
 
-function ChatArea({ channelName, userName, channelId, isDirectMessage, isAIAssistant }: ChatAreaProps) {
+function ChatArea({ channelName, userName, channelId, isDirectMessage, isAIAssistant, workspaceId }: ChatAreaProps) {
   const [messages, setMessages] = useState<Message[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [activeThread, setActiveThread] = useState<Message | null>(null);
   const [otherUserName, setOtherUserName] = useState<string | null>(null);
+  const [isFilesSidebarOpen, setIsFilesSidebarOpen] = useState(false);
   const viewportRef = useRef<HTMLDivElement>(null);
   const [shouldScrollToBottom, setShouldScrollToBottom] = useState(true);
   const lastScrollPosition = useRef<number>(0);
@@ -499,100 +502,126 @@ function ChatArea({ channelName, userName, channelId, isDirectMessage, isAIAssis
     }
   };
 
+  // Add debug logging for props
+  useEffect(() => {
+    if (isFilesSidebarOpen) {
+      console.log('ChatArea props for FilesSidebar:', {
+        workspaceId,
+        channelId,
+        isFilesSidebarOpen
+      })
+    }
+  }, [isFilesSidebarOpen, workspaceId, channelId])
+
   return (
-    <div className="flex-1 flex flex-col h-[calc(100vh-4rem)]">
-      <div className="border-b p-4 flex justify-between items-center shrink-0">
+    <div className="flex-1 flex flex-col relative">
+      <div className="flex items-center justify-between px-4 py-2 border-b">
         <div>
-          <h2 className="text-lg font-semibold">
+          <h2 className="font-semibold">
             {isDirectMessage ? otherUserName : channelName}
           </h2>
-          {!isAIAssistant && (
-            <p className="text-sm text-gray-500">
-              {isDirectMessage ? 'Direct Message' : 'Channel'}
-            </p>
-          )}
+        </div>
+        <div className="flex items-center space-x-2">
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={() => setIsFilesSidebarOpen(true)}
+          >
+            <Paperclip className="h-4 w-4" />
+          </Button>
         </div>
       </div>
-      <div className="flex-1 flex min-h-0 overflow-hidden">
-        <div className={`flex-1 flex flex-col min-h-0 ${activeThread ? 'border-r' : ''}`}>
-          <ScrollArea className="flex-1 min-h-0 overflow-auto">
-            <div ref={viewportRef} className="p-4 space-y-4">
-              {isLoading ? (
-                <div className="text-center">Loading messages...</div>
-              ) : messages.length === 0 ? (
-                <div className="text-center text-gray-500">
-                  {isAIAssistant 
-                    ? "Ask me anything about your workspace's conversations and files!"
-                    : "No messages yet"}
-                </div>
-              ) : (
-                messages.map((message) => (
-                  <MessageItem
-                    key={message.id}
-                    message={message}
-                    toggleEmoji={toggleEmoji}
-                    openThread={handleOpenThread}
-                  />
-                ))
-              )}
+
+      <ScrollArea
+        className="flex-1"
+        scrollHideDelay={0}
+        ref={viewportRef as any}
+      >
+        <div className="p-4 space-y-4">
+          {isLoading ? (
+            <div className="text-center">Loading messages...</div>
+          ) : messages.length === 0 ? (
+            <div className="text-center text-gray-500">
+              {isAIAssistant 
+                ? "Ask me anything about your workspace's conversations and files!"
+                : "No messages yet"}
             </div>
-          </ScrollArea>
-          <div className="shrink-0 border-t">
-            <MessageInput
-              placeholder={isAIAssistant 
-                ? "Ask me anything about your workspace..."
-                : "Type a message..."}
-              channelId={channelId}
-              onMessageSent={fetchMessages}
-              isAIAssistant={isAIAssistant}
-              setMessages={setMessages}
-            />
-          </div>
+          ) : (
+            messages.map((message) => (
+              <MessageItem
+                key={message.id}
+                message={message}
+                toggleEmoji={toggleEmoji}
+                openThread={handleOpenThread}
+              />
+            ))
+          )}
         </div>
-        {activeThread && (
-          <div className="w-96 flex flex-col min-h-0">
-            <div className="border-b p-4 flex justify-between items-center shrink-0">
-              <div className="flex justify-between items-center">
-                <h3 className="font-semibold">Thread</h3>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  onClick={() => setActiveThread(null)}
-                >
-                  <X className="h-4 w-4" />
-                </Button>
-              </div>
+      </ScrollArea>
+
+      <MessageInput
+        placeholder={`Message ${isDirectMessage ? otherUserName : channelName}`}
+        channelId={channelId}
+        onMessageSent={() => {
+          setShouldScrollToBottom(true);
+          scrollToBottom();
+        }}
+        isAIAssistant={isAIAssistant}
+        setMessages={setMessages}
+      />
+
+      {workspaceId && channelId && (
+        <FilesSidebar
+          isOpen={isFilesSidebarOpen}
+          onClose={() => setIsFilesSidebarOpen(false)}
+          channelId={channelId}
+          workspaceId={workspaceId}
+        />
+      )}
+
+      {activeThread && (
+        <div className="fixed inset-y-0 right-0 w-96 bg-white border-l border-gray-200 shadow-lg z-40 flex flex-col">
+          <div className="border-b p-4 flex justify-between items-center shrink-0">
+            <div className="flex justify-between items-center">
+              <h3 className="font-semibold">Thread</h3>
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={() => setActiveThread(null)}
+              >
+                <X className="h-4 w-4" />
+              </Button>
             </div>
-            <ScrollArea className="flex-1 min-h-0 overflow-auto">
-              <div className="p-4 space-y-4">
+          </div>
+          <ScrollArea className="flex-1 min-h-0 overflow-auto">
+            <div className="p-4 space-y-4">
+              <MessageItem
+                message={activeThread}
+                toggleEmoji={toggleEmoji}
+                openThread={handleOpenThread}
+                isThreadView
+              />
+              {activeThread.replies.map((reply) => (
                 <MessageItem
-                  message={activeThread}
+                  key={reply.id}
+                  message={reply}
                   toggleEmoji={toggleEmoji}
                   openThread={handleOpenThread}
                   isThreadView
                 />
-                {activeThread.replies.map((reply) => (
-                  <MessageItem
-                    key={reply.id}
-                    message={reply}
-                    toggleEmoji={toggleEmoji}
-                    openThread={handleOpenThread}
-                    isThreadView
-                  />
-                ))}
-              </div>
-            </ScrollArea>
-            <div className="shrink-0 border-t">
-              <MessageInput
-                placeholder="Reply to thread..."
-                channelId={channelId}
-                parentMessageId={activeThread.id}
-                onMessageSent={() => handleOpenThread(activeThread)}
-              />
+              ))}
             </div>
+          </ScrollArea>
+          <div className="shrink-0 border-t">
+            <MessageInput
+              placeholder="Reply to thread..."
+              channelId={channelId}
+              parentMessageId={activeThread.id}
+              onMessageSent={() => handleOpenThread(activeThread)}
+            />
           </div>
-        )}
-      </div>
+        </div>
+      )}
     </div>
   );
 }

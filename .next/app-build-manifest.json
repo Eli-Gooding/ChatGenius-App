@@ -6,26 +6,6 @@
       "static/css/app/layout.css",
       "static/chunks/app/layout.js"
     ],
-    "/page": [
-      "static/chunks/webpack.js",
-      "static/chunks/main-app.js",
-      "static/chunks/app/page.js"
-    ],
-    "/workspaces/page": [
-      "static/chunks/webpack.js",
-      "static/chunks/main-app.js",
-      "static/chunks/app/workspaces/page.js"
-    ],
-    "/workspace/[workspaceId]/page": [
-      "static/chunks/webpack.js",
-      "static/chunks/main-app.js",
-      "static/chunks/app/workspace/[workspaceId]/page.js"
-    ],
-    "/workspace/[workspaceId]/channel/[channelId]/page": [
-      "static/chunks/webpack.js",
-      "static/chunks/main-app.js",
-      "static/chunks/app/workspace/[workspaceId]/channel/[channelId]/page.js"
-    ],
     "/workspace/[workspaceId]/ai-assistant/page": [
       "static/chunks/webpack.js",
       "static/chunks/main-app.js",
@@ -35,6 +15,11 @@
       "static/chunks/webpack.js",
       "static/chunks/main-app.js",
       "static/chunks/app/api/ai-assistant/route.js"
+    ],
+    "/workspace/[workspaceId]/channel/[channelId]/page": [
+      "static/chunks/webpack.js",
+      "static/chunks/main-app.js",
+      "static/chunks/app/workspace/[workspaceId]/channel/[channelId]/page.js"
     ]
   }
 }

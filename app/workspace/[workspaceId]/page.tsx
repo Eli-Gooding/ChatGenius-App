@@ -15,7 +15,7 @@ export default function WorkspacePage({ params }: { params: { workspaceId: strin
       <Sidebar workspaceId={params.workspaceId} />
       <main className="flex-1 flex flex-col">
         <Header />
-        <ChatArea />
+        <ChatArea workspaceId={params.workspaceId} />
       </main>
     </div>
   )

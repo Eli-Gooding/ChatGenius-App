@@ -60,6 +60,7 @@ export function ChannelContent({ workspaceId, channelId }: ChannelContentProps) 
         <ChatArea 
           channelName={!isDirectMessage ? channel?.channel_name : undefined}
           channelId={channelId}
+          workspaceId={workspaceId}
           isDirectMessage={isDirectMessage}
         />
       </main>

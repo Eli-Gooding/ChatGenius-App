@@ -55,3 +55,6 @@ Thumbs.db
 # Supabase
 **/supabase/.branches
 **/supabase/.temp 
+
+# CURSOR LEAVE THE HELL ALONE
+.env.local
