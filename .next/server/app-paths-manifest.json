@@ -1,7 +1,8 @@
 {
+  "/api/ai-assistant/route": "app/api/ai-assistant/route.js",
+  "/page": "app/page.js",
   "/workspace/[workspaceId]/ai-assistant/page": "app/workspace/[workspaceId]/ai-assistant/page.js",
   "/workspaces/page": "app/workspaces/page.js",
   "/workspace/[workspaceId]/channel/[channelId]/page": "app/workspace/[workspaceId]/channel/[channelId]/page.js",
-  "/workspace/[workspaceId]/page": "app/workspace/[workspaceId]/page.js",
-  "/page": "app/page.js"
+  "/workspace/[workspaceId]/page": "app/workspace/[workspaceId]/page.js"
 }

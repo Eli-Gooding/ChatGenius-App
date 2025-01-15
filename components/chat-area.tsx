@@ -52,6 +52,10 @@ interface Message {
   replies: Message[];
   reactions?: { [key: string]: number };
   has_reply?: boolean;
+  context?: {
+    content: string;
+    metadata: Record<string, any>;
+  }[];
 }
 
 interface MembershipWithUser {
@@ -674,6 +678,7 @@ interface MessageInputProps {
 function MessageInput({ placeholder, channelId, parentMessageId, onMessageSent, isAIAssistant, setMessages }: MessageInputProps) {
   const [isFocused, setIsFocused] = useState(false);
   const [isSending, setIsSending] = useState(false);
+  const [localMessages, setLocalMessages] = useState<Message[]>([]);
   const supabase = createClientComponentClient();
   const editor = useEditor({
     extensions: [
@@ -689,6 +694,20 @@ function MessageInput({ placeholder, channelId, parentMessageId, onMessageSent, 
     onFocus: () => setIsFocused(true),
     onBlur: () => setIsFocused(false),
   });
+
+  // Load messages from localStorage on mount
+  useEffect(() => {
+    if (isAIAssistant) {
+      const storedMessages = localStorage.getItem('ai_assistant_messages');
+      if (storedMessages) {
+        const messages = JSON.parse(storedMessages);
+        setLocalMessages(messages);
+        if (setMessages) {
+          setMessages(messages);
+        }
+      }
+    }
+  }, [isAIAssistant, setMessages]);
 
   const sendMessage = async () => {
     if (!editor?.getText().trim()) return;
@@ -706,23 +725,7 @@ function MessageInput({ placeholder, channelId, parentMessageId, onMessageSent, 
 
       if (isAIAssistant && setMessages) {
         try {
-          const response = await fetch('/api/ai-assistant', {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({
-              query: content
-            })
-          });
-
-          if (!response.ok) {
-            throw new Error('Failed to get AI response');
-          }
-
-          const data = await response.json();
-
-          // Add user message to state
+          // Add user message to state first
           const userMessage: Message = {
             id: crypto.randomUUID(),
             user_id: session.user.id,
@@ -735,6 +738,25 @@ function MessageInput({ placeholder, channelId, parentMessageId, onMessageSent, 
             replies: []
           };
 
+          setMessages(prev => [...prev, userMessage]);
+
+          // Get AI response
+          const response = await fetch('/api/ai-assistant', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              query: content
+            })
+          });
+
+          const data = await response.json();
+
+          if (!response.ok) {
+            throw new Error(data.error || 'Failed to get AI response');
+          }
+
           // Add AI response to state
           const aiMessage: Message = {
             id: crypto.randomUUID(),
@@ -745,35 +767,34 @@ function MessageInput({ placeholder, channelId, parentMessageId, onMessageSent, 
               user_name: 'AI Assistant',
               avatar_url: null
             },
-            replies: []
+            replies: [],
+            context: data.context
           };
 
-          setMessages(prev => [...prev, userMessage, aiMessage]);
+          setMessages(prev => [...prev, aiMessage]);
+
+          // Save messages to local storage
+          const updatedMessages = [...localMessages, userMessage, aiMessage];
+          setLocalMessages(updatedMessages);
+          localStorage.setItem('ai_assistant_messages', JSON.stringify(updatedMessages));
         } catch (error) {
           console.error('Error getting AI response:', error);
-          toast.error('Failed to get AI response');
+          let errorMessage = 'Failed to get AI response';
+          if (error instanceof Error) {
+            errorMessage = error.message;
+          }
+          toast.error(errorMessage);
+          // Remove the user message if AI response fails
+          setMessages(prev => prev.slice(0, -1));
         }
       } else {
-        // Convert the rich text content to markdown
-        const markdown = editor.getHTML()
-          .replace(/<strong>/g, '**')
-          .replace(/<\/strong>/g, '**')
-          .replace(/<em>/g, '*')
-          .replace(/<\/em>/g, '*')
-          .replace(/<u>/g, '__')
-          .replace(/<\/u>/g, '__')
-          .replace(/<code>/g, '`')
-          .replace(/<\/code>/g, '`')
-          .replace(/<p>/g, '')
-          .replace(/<\/p>/g, '\n')
-          .trim();
-
+        // Handle regular channel messages
         const { error } = await supabase
           .from('messages')
           .insert({
             channel_id: channelId,
             user_id: session.user.id,
-            content: markdown,
+            content: content,
             parent_message_id: parentMessageId
           });
 
