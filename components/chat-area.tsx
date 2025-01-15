@@ -39,8 +39,25 @@ interface DatabaseMessageRow {
   has_reply: boolean;
 }
 
+interface ThreadMessageRow {
+  id: string;
+  user_id: string;
+  content: string;
+  created_at: string;
+  users: {
+    user_name: string;
+    avatar_url: string | null;
+  };
+  reactions: DatabaseReaction[] | null;
+}
+
 interface SupabaseMessageResponse {
   data: DatabaseMessageRow[];
+  error: any;
+}
+
+interface SupabaseThreadMessageResponse {
+  data: ThreadMessageRow[];
   error: any;
 }
 
@@ -86,6 +103,7 @@ function ChatArea({ channelName, userName, channelId, isDirectMessage, isAIAssis
   const [shouldScrollToBottom, setShouldScrollToBottom] = useState(true);
   const lastScrollPosition = useRef<number>(0);
   const isInitialLoad = useRef<boolean>(true);
+  const threadSubscription = useRef<ReturnType<typeof supabase.channel> | null>(null);
   const supabase = createClientComponentClient();
 
   // Fetch the other user's name for DMs
@@ -247,33 +265,63 @@ function ChatArea({ channelName, userName, channelId, isDirectMessage, isAIAssis
             
             // Only update main message list if it's a root message
             if (!payload.new.parent_message_id) {
-              // Get the user data in parallel with handling the message
-              const { data: userData, error: userError } = await supabase
-                .from('users')
-                .select('user_name, avatar_url')
-                .eq('id', payload.new.user_id)
-                .single();
+              type NewMessageResponse = {
+                id: string;
+                content: string;
+                created_at: string;
+                user_id: string;
+                has_reply: boolean;
+                users: {
+                  user_name: string;
+                  avatar_url: string | null;
+                };
+                reactions: DatabaseReaction[] | null;
+              };
 
-              if (userError) {
-                console.error('Error fetching user data:', userError);
+              // Get the user data in parallel with handling the message
+              const { data: newMessage, error } = await supabase
+                .from('messages')
+                .select(`
+                  id,
+                  content,
+                  created_at,
+                  user_id,
+                  has_reply,
+                  users!inner (
+                    user_name,
+                    avatar_url
+                  ),
+                  reactions (
+                    emoji,
+                    user_id
+                  )
+                `)
+                .eq('id', payload.new.id)
+                .single() as unknown as { data: NewMessageResponse, error: any };
+
+              if (error || !newMessage) {
+                console.error('Error fetching new message:', error);
                 return;
               }
 
-              const newMessage: Message = {
-                id: payload.new.id,
-                user_id: payload.new.user_id,
-                content: payload.new.content,
-                created_at: payload.new.created_at,
-                has_reply: payload.new.has_reply || false,
-                replies: [],
-                reactions: {},
+              const transformedMessage: Message = {
+                id: newMessage.id,
+                user_id: newMessage.user_id,
+                content: newMessage.content,
+                created_at: newMessage.created_at,
+                has_reply: newMessage.has_reply || false,
                 user: {
-                  user_name: userData.user_name,
-                  avatar_url: userData.avatar_url
-                }
+                  user_name: newMessage.users.user_name,
+                  avatar_url: newMessage.users.avatar_url
+                },
+                replies: [],
+                reactions: newMessage.reactions?.reduce((acc: { [key: string]: number }, reaction: DatabaseReaction) => {
+                  acc[reaction.emoji] = (acc[reaction.emoji] || 0) + 1;
+                  return acc;
+                }, {})
               };
 
-              setMessages(prev => [...prev, newMessage]);
+              setMessages(prev => [...prev, transformedMessage]);
               
               if (shouldScrollToBottom) {
                 scrollToBottom();
@@ -303,7 +351,19 @@ function ChatArea({ channelName, userName, channelId, isDirectMessage, isAIAssis
       setIsLoading(true);
       saveScrollPosition();
 
-      // Get messages with user data
+      type MessageResponse = {
+        id: string;
+        content: string;
+        created_at: string;
+        user_id: string;
+        has_reply: boolean;
+        users: {
+          user_name: string;
+          avatar_url: string | null;
+        };
+        reactions: DatabaseReaction[] | null;
+      };
+
       const { data: messagesData, error: messagesError } = await supabase
         .from('messages')
         .select(`
@@ -312,7 +372,7 @@ function ChatArea({ channelName, userName, channelId, isDirectMessage, isAIAssis
           created_at,
           user_id,
           has_reply,
-          users (
+          users!inner (
             user_name,
             avatar_url
           ),
@@ -323,30 +383,30 @@ function ChatArea({ channelName, userName, channelId, isDirectMessage, isAIAssis
         `)
         .eq('channel_id', channelId)
         .is('parent_message_id', null)
-        .order('created_at') as SupabaseMessageResponse;
+        .order('created_at')
+        .returns<MessageResponse[]>();
 
       if (messagesError) {
         toast.error('Error loading messages: ' + messagesError.message);
         return;
       }
 
-      // Transform the data into our Message type
-      const transformedMessages: Message[] = (messagesData || []).map(msg => ({
-        id: msg.id,
-        user_id: msg.user_id,
-        content: msg.content,
-        created_at: msg.created_at,
-        has_reply: msg.has_reply || false,
-        replies: [],
+      const transformedMessages = (messagesData || []).map(message => ({
+        id: message.id,
+        user_id: message.user_id,
+        content: message.content,
+        created_at: message.created_at,
         user: {
-          user_name: msg.users.user_name,
-          avatar_url: msg.users.avatar_url
+          user_name: message.users.user_name,
+          avatar_url: message.users.avatar_url
         },
-        reactions: msg.reactions?.reduce((acc: { [key: string]: number }, reaction) => {
+        replies: [],
+        has_reply: message.has_reply,
+        reactions: message.reactions?.reduce((acc: { [key: string]: number }, reaction) => {
           acc[reaction.emoji] = (acc[reaction.emoji] || 0) + 1;
           return acc;
         }, {})
-      }));
+      })) as Message[];
 
       setMessages(transformedMessages);
     } catch (error) {
@@ -361,6 +421,18 @@ function ChatArea({ channelName, userName, channelId, isDirectMessage, isAIAssis
 
   const fetchThreadReplies = async (threadMessageId: string): Promise<Message[]> => {
     try {
+      type ThreadResponse = {
+        id: string;
+        content: string;
+        created_at: string;
+        user_id: string;
+        users: {
+          user_name: string;
+          avatar_url: string | null;
+        };
+        reactions: DatabaseReaction[] | null;
+      };
+
       const { data: repliesData, error: repliesError } = await supabase
         .from('messages')
         .select(`
@@ -368,7 +440,7 @@ function ChatArea({ channelName, userName, channelId, isDirectMessage, isAIAssis
           content,
           created_at,
           user_id,
-          users (
+          users!inner (
             user_name,
             avatar_url
           ),
@@ -378,7 +450,8 @@ function ChatArea({ channelName, userName, channelId, isDirectMessage, isAIAssis
           )
         `)
         .eq('parent_message_id', threadMessageId)
-        .order('created_at') as SupabaseMessageResponse;
+        .order('created_at')
+        .returns<ThreadResponse[]>();
 
       if (repliesError) {
         toast.error('Error loading replies: ' + repliesError.message);
@@ -399,7 +472,7 @@ function ChatArea({ channelName, userName, channelId, isDirectMessage, isAIAssis
           acc[reaction.emoji] = (acc[reaction.emoji] || 0) + 1;
           return acc;
         }, {})
-      }));
+      })) as Message[];
     } catch (error) {
       console.error('Error fetching replies:', error);
       return [];
@@ -407,10 +480,149 @@ function ChatArea({ channelName, userName, channelId, isDirectMessage, isAIAssis
   };
 
   const handleOpenThread = async (message: Message) => {
+    // Clean up any existing thread subscription
+    if (threadSubscription.current) {
+      threadSubscription.current.unsubscribe();
+      threadSubscription.current = null;
+    }
+
     const replies = await fetchThreadReplies(message.id);
     message.replies = replies;
     setActiveThread({ ...message });
+
+    // Subscribe to thread replies
+    threadSubscription.current = supabase
+      .channel(`thread-${message.id}`)
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'messages',
+          filter: `parent_message_id=eq.${message.id}`
+        },
+        async (payload) => {
+          console.log('Thread message change received:', payload);
+          
+          if (payload.eventType === 'INSERT') {
+            type ThreadMessageResponse = {
+              id: string;
+              content: string;
+              created_at: string;
+              user_id: string;
+              has_reply: boolean;
+              users: {
+                user_name: string;
+                avatar_url: string | null;
+              };
+              reactions: DatabaseReaction[] | null;
+            };
+
+            // Fetch the complete message data including user info
+            const { data: newMessage, error } = await supabase
+              .from('messages')
+              .select(`
+                id,
+                content,
+                created_at,
+                user_id,
+                has_reply,
+                users!inner (
+                  user_name,
+                  avatar_url
+                ),
+                reactions (
+                  emoji,
+                  user_id
+                )
+              `)
+              .eq('id', payload.new.id)
+              .single() as unknown as { data: ThreadMessageResponse, error: any };
+
+            if (error || !newMessage) {
+              console.error('Error fetching new thread message:', error);
+              return;
+            }
+
+            const transformedMessage: Message = {
+              id: newMessage.id,
+              user_id: newMessage.user_id,
+              content: newMessage.content,
+              created_at: newMessage.created_at,
+              has_reply: newMessage.has_reply || false,
+              user: {
+                user_name: newMessage.users.user_name,
+                avatar_url: newMessage.users.avatar_url
+              },
+              replies: [],
+              reactions: newMessage.reactions?.reduce((acc: { [key: string]: number }, reaction: DatabaseReaction) => {
+                acc[reaction.emoji] = (acc[reaction.emoji] || 0) + 1;
+                return acc;
+              }, {})
+            };
+
+            setActiveThread(prevThread => {
+              if (!prevThread) return null;
+              return {
+                ...prevThread,
+                replies: [...prevThread.replies, transformedMessage]
+              };
+            });
+          } else if (payload.eventType === 'DELETE') {
+            setActiveThread(prevThread => {
+              if (!prevThread) return null;
+              return {
+                ...prevThread,
+                replies: prevThread.replies.filter(reply => reply.id !== payload.old.id)
+              };
+            });
+          } else if (payload.eventType === 'UPDATE') {
+            setActiveThread(prevThread => {
+              if (!prevThread) return null;
+              const updatedReplies = prevThread.replies.map(reply => {
+                if (reply.id === payload.new.id) {
+                  return {
+                    ...reply,
+                    content: payload.new.content,
+                    has_reply: payload.new.has_reply
+                  };
+                }
+                return reply;
+              });
+              return {
+                ...prevThread,
+                replies: updatedReplies
+              };
+            });
+          }
+        }
+      )
+      .subscribe();
+
+    // Clean up subscription when thread is closed
+    return () => {
+      threadSubscription.current?.unsubscribe();
+      threadSubscription.current = null;
+    };
   };
+
+  const handleCloseThread = () => {
+    if (threadSubscription.current) {
+      threadSubscription.current.unsubscribe();
+      threadSubscription.current = null;
+    }
+    setActiveThread(null);
+  };
+
+  // Cleanup subscription on unmount
+  useEffect(() => {
+    return () => {
+      if (threadSubscription.current) {
+        threadSubscription.current.unsubscribe();
+        threadSubscription.current = null;
+      }
+    };
+  }, []);
 
   const toggleEmoji = async (messageId: string, emoji: string) => {
     try {
@@ -634,6 +846,8 @@ interface MessageItemProps {
 }
 
 function MessageItem({ message, toggleEmoji, openThread, isThreadView }: MessageItemProps) {
+  const [isNestedThreadOpen, setIsNestedThreadOpen] = useState(false);
+
   return (
     <div className="flex items-start gap-4 group">
       <Avatar>
@@ -691,6 +905,20 @@ function MessageItem({ message, toggleEmoji, openThread, isThreadView }: Message
             >
               <MessageSquare className="h-4 w-4 mr-1" />
               See Replies
+            </Button>
+          )}
+          {isThreadView && message.has_reply && !isNestedThreadOpen && (
+            <Button 
+              variant="ghost" 
+              size="sm" 
+              className="text-purple-700 hover:text-purple-800 hover:bg-purple-50"
+              onClick={() => {
+                setIsNestedThreadOpen(true);
+                openThread(message);
+              }}
+            >
+              <MessageSquare className="h-4 w-4 mr-1" />
+              See Thread Replies
             </Button>
           )}
         </div>
