@@ -30,9 +30,17 @@ interface DatabaseMessageRow {
   user_id: string;
   content: string;
   created_at: string;
-  users: MessageUser;
+  users: {
+    user_name: string;
+    avatar_url: string | null;
+  };
   reactions: DatabaseReaction[] | null;
   has_reply: boolean;
+}
+
+interface SupabaseMessageResponse {
+  data: DatabaseMessageRow[];
+  error: any;
 }
 
 interface Message {
@@ -59,9 +67,10 @@ interface ChatAreaProps {
   userName?: string;
   channelId?: string;
   isDirectMessage?: boolean;
+  isAIAssistant?: boolean;
 }
 
-function ChatArea({ channelName, userName, channelId, isDirectMessage }: ChatAreaProps) {
+function ChatArea({ channelName, userName, channelId, isDirectMessage, isAIAssistant }: ChatAreaProps) {
   const [messages, setMessages] = useState<Message[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [activeThread, setActiveThread] = useState<Message | null>(null);
@@ -82,8 +91,6 @@ function ChatArea({ channelName, userName, channelId, isDirectMessage }: ChatAre
         const { data: { session }, error: authError } = await supabase.auth.getSession();
         if (!session) return;
 
-        console.log('Current user ID:', session.user.id);
-
         // First get the memberships with user data
         const { data: memberships, error: membershipError } = await supabase
           .from('memberships')
@@ -102,8 +109,6 @@ function ChatArea({ channelName, userName, channelId, isDirectMessage }: ChatAre
           return;
         }
 
-        console.log('Memberships data:', memberships);
-
         // If it's a self DM (only one member)
         if (memberships.length === 1) {
           const member = memberships[0];
@@ -118,7 +123,6 @@ function ChatArea({ channelName, userName, channelId, isDirectMessage }: ChatAre
           return;
         }
 
-        console.log('Other member:', otherMember);
         setOtherUserName(otherMember.users.user_name);
       } catch (error) {
         console.error('Error fetching DM user:', error);
@@ -200,8 +204,18 @@ function ChatArea({ channelName, userName, channelId, isDirectMessage }: ChatAre
   }, []);
 
   useEffect(() => {
-    if (!channelId) return;
+    if (!channelId && !isAIAssistant) return;
     
+    if (isAIAssistant) {
+      // For AI Assistant, we'll load messages from local storage
+      const storedMessages = localStorage.getItem('ai_assistant_messages');
+      if (storedMessages) {
+        setMessages(JSON.parse(storedMessages));
+      }
+      setIsLoading(false);
+      return;
+    }
+
     console.log('Setting up real-time subscription for channel:', channelId);
     
     // Initial fetch of messages
@@ -238,8 +252,6 @@ function ChatArea({ channelName, userName, channelId, isDirectMessage }: ChatAre
                 return;
               }
 
-              console.log('User data fetched:', userData);
-
               const newMessage: Message = {
                 id: payload.new.id,
                 user_id: payload.new.user_id,
@@ -248,89 +260,52 @@ function ChatArea({ channelName, userName, channelId, isDirectMessage }: ChatAre
                 has_reply: payload.new.has_reply || false,
                 replies: [],
                 reactions: {},
-                user: userData
+                user: {
+                  user_name: userData.user_name,
+                  avatar_url: userData.avatar_url
+                }
               };
 
-              console.log('Adding new message to state:', newMessage);
-              setMessages(prev => {
-                // Check if message already exists
-                if (prev.some(msg => msg.id === newMessage.id)) {
-                  console.log('Message already exists, skipping...');
-                  return prev;
-                }
-                return [...prev, newMessage];
-              });
-            } else if (activeThread && payload.new.parent_message_id === activeThread.id) {
-              // If it's a reply to the active thread, refresh thread replies
-              const replies = await fetchThreadReplies(activeThread.id);
-              setActiveThread(prev => prev ? { ...prev, replies } : null);
-              // Also refresh the main messages to update has_reply status
-              fetchMessages();
+              setMessages(prev => [...prev, newMessage]);
+              
+              if (shouldScrollToBottom) {
+                scrollToBottom();
+              }
             }
           }
         }
       )
-      .on(
-        'postgres_changes',
-        {
-          event: '*',
-          schema: 'public',
-          table: 'reactions',
-          filter: `message_id=in.(${messages.map(m => m.id).join(',')})`
-        },
-        (payload) => {
-          console.log('Reaction change received:', payload);
-          // Refresh messages to get updated reactions
-          fetchMessages();
-        }
-      )
-      .subscribe((status, err) => {
-        console.log('Subscription status:', status, err);
-        if (status === 'SUBSCRIBED') {
-          console.log('Successfully subscribed to real-time changes');
-        }
-        if (status === 'CHANNEL_ERROR') {
-          console.error('Subscription error:', err);
-          // Attempt to resubscribe after a delay
-          setTimeout(() => {
-            console.log('Attempting to resubscribe...');
-            channel.subscribe();
-          }, 1000);
-        }
-        if (status === 'TIMED_OUT') {
-          console.error('Subscription timed out, reconnecting...');
-          channel.subscribe();
-        }
-      });
+      .subscribe();
 
-    // Cleanup function
     return () => {
-      console.log('Cleaning up subscription for channel:', channelId);
       channel.unsubscribe();
     };
-  }, [channelId, messages]); // Added messages to dependency array for reactions filter
+  }, [channelId, isAIAssistant]);
+
+  // Save AI Assistant messages to local storage
+  useEffect(() => {
+    if (isAIAssistant && messages.length > 0) {
+      localStorage.setItem('ai_assistant_messages', JSON.stringify(messages));
+    }
+  }, [messages, isAIAssistant]);
 
   const fetchMessages = async () => {
     if (!channelId) return;
-    
-    try {
-      console.log('Fetching messages for channel:', channelId);
-      saveScrollPosition();
-      const { data: { session }, error: authError } = await supabase.auth.getSession();
-      if (!session) {
-        toast.error('Please sign in to view messages');
-        return;
-      }
 
-      const { data: rawData, error } = await supabase
+    try {
+      setIsLoading(true);
+      saveScrollPosition();
+
+      // Get messages with user data
+      const { data: messagesData, error: messagesError } = await supabase
         .from('messages')
         .select(`
           id,
-          user_id,
           content,
           created_at,
+          user_id,
           has_reply,
-          users:users!messages_user_id_fkey (
+          users (
             user_name,
             avatar_url
           ),
@@ -340,32 +315,33 @@ function ChatArea({ channelName, userName, channelId, isDirectMessage }: ChatAre
           )
         `)
         .eq('channel_id', channelId)
-        .is('parent_message_id', null) // Only fetch root messages
-        .order('created_at', { ascending: true });
+        .is('parent_message_id', null)
+        .order('created_at') as SupabaseMessageResponse;
 
-      if (error) {
-        console.error('Error fetching messages:', error);
-        toast.error('Error loading messages: ' + error.message);
+      if (messagesError) {
+        toast.error('Error loading messages: ' + messagesError.message);
         return;
       }
 
-      console.log('Fetched messages:', rawData);
-      const messagesData = rawData as unknown as DatabaseMessageRow[];
-      const newMessages = messagesData.map(msg => ({
+      // Transform the data into our Message type
+      const transformedMessages: Message[] = (messagesData || []).map(msg => ({
         id: msg.id,
         user_id: msg.user_id,
         content: msg.content,
         created_at: msg.created_at,
-        has_reply: msg.has_reply,
+        has_reply: msg.has_reply || false,
         replies: [],
-        reactions: msg.reactions?.reduce((acc, reaction) => {
+        user: {
+          user_name: msg.users.user_name,
+          avatar_url: msg.users.avatar_url
+        },
+        reactions: msg.reactions?.reduce((acc: { [key: string]: number }, reaction) => {
           acc[reaction.emoji] = (acc[reaction.emoji] || 0) + 1;
           return acc;
-        }, {} as { [key: string]: number }) || {},
-        user: msg.users
+        }, {})
       }));
 
-      setMessages(newMessages);
+      setMessages(transformedMessages);
     } catch (error) {
       console.error('Fetch error:', error);
       if (error instanceof Error) {
@@ -377,17 +353,15 @@ function ChatArea({ channelName, userName, channelId, isDirectMessage }: ChatAre
   };
 
   const fetchThreadReplies = async (threadMessageId: string): Promise<Message[]> => {
-    if (!channelId) return [];
-    
     try {
-      const { data: rawData, error } = await supabase
+      const { data: repliesData, error: repliesError } = await supabase
         .from('messages')
         .select(`
           id,
-          user_id,
           content,
           created_at,
-          users:users!messages_user_id_fkey (
+          user_id,
+          users (
             user_name,
             avatar_url
           ),
@@ -396,42 +370,39 @@ function ChatArea({ channelName, userName, channelId, isDirectMessage }: ChatAre
             user_id
           )
         `)
-        .eq('channel_id', channelId)
         .eq('parent_message_id', threadMessageId)
-        .order('created_at', { ascending: true });
+        .order('created_at') as SupabaseMessageResponse;
 
-      if (error) {
-        console.error('Error fetching thread replies:', error);
-        toast.error('Error loading replies: ' + error.message);
+      if (repliesError) {
+        toast.error('Error loading replies: ' + repliesError.message);
         return [];
       }
 
-      const messagesData = rawData as unknown as DatabaseMessageRow[];
-      return messagesData.map(msg => ({
-        id: msg.id,
-        user_id: msg.user_id,
-        content: msg.content,
-        created_at: msg.created_at,
+      return (repliesData || []).map(reply => ({
+        id: reply.id,
+        user_id: reply.user_id,
+        content: reply.content,
+        created_at: reply.created_at,
+        user: {
+          user_name: reply.users.user_name,
+          avatar_url: reply.users.avatar_url
+        },
         replies: [],
-        reactions: msg.reactions?.reduce((acc, reaction) => {
+        reactions: reply.reactions?.reduce((acc: { [key: string]: number }, reaction) => {
           acc[reaction.emoji] = (acc[reaction.emoji] || 0) + 1;
           return acc;
-        }, {} as { [key: string]: number }) || {},
-        user: msg.users
-      })) as Message[];
+        }, {})
+      }));
     } catch (error) {
-      console.error('Fetch thread replies error:', error);
+      console.error('Error fetching replies:', error);
       return [];
     }
   };
 
-  // Modify the setActiveThread to fetch replies when opening a thread
   const handleOpenThread = async (message: Message) => {
     const replies = await fetchThreadReplies(message.id);
-    setActiveThread({
-      ...message,
-      replies
-    });
+    message.replies = replies;
+    setActiveThread({ ...message });
   };
 
   const toggleEmoji = async (messageId: string, emoji: string) => {
@@ -442,122 +413,178 @@ function ChatArea({ channelName, userName, channelId, isDirectMessage }: ChatAre
         return;
       }
 
-      const { data: existingReaction } = await supabase
+      // Check if user has already reacted with this emoji
+      const { data: existingReaction, error: checkError } = await supabase
         .from('reactions')
-        .select()
+        .select('id')
         .eq('message_id', messageId)
         .eq('user_id', session.user.id)
         .eq('emoji', emoji)
         .single();
 
+      if (checkError && checkError.code !== 'PGRST116') { // PGRST116 is "no rows returned"
+        toast.error('Error checking reaction: ' + checkError.message);
+        return;
+      }
+
       if (existingReaction) {
         // Remove reaction
-        await supabase
+        const { error: deleteError } = await supabase
           .from('reactions')
           .delete()
-          .eq('message_id', messageId)
-          .eq('user_id', session.user.id)
-          .eq('emoji', emoji);
+          .eq('id', existingReaction.id);
+
+        if (deleteError) {
+          toast.error('Error removing reaction: ' + deleteError.message);
+          return;
+        }
       } else {
         // Add reaction
-        await supabase
+        const { error: insertError } = await supabase
           .from('reactions')
           .insert({
             message_id: messageId,
             user_id: session.user.id,
             emoji: emoji
           });
+
+        if (insertError) {
+          toast.error('Error adding reaction: ' + insertError.message);
+          return;
+        }
       }
 
-      // Refresh messages to get updated reactions
-      fetchMessages();
+      // Update the message in state
+      setMessages(prev => prev.map(msg => {
+        if (msg.id === messageId) {
+          const reactions = { ...msg.reactions };
+          if (existingReaction) {
+            reactions[emoji] = (reactions[emoji] || 1) - 1;
+            if (reactions[emoji] === 0) {
+              delete reactions[emoji];
+            }
+          } else {
+            reactions[emoji] = (reactions[emoji] || 0) + 1;
+          }
+          return { ...msg, reactions };
+        }
+        return msg;
+      }));
+
+      // If the message is in a thread, update the thread state too
+      if (activeThread?.id === messageId) {
+        setActiveThread(prev => {
+          if (!prev) return null;
+          const reactions = { ...prev.reactions };
+          if (existingReaction) {
+            reactions[emoji] = (reactions[emoji] || 1) - 1;
+            if (reactions[emoji] === 0) {
+              delete reactions[emoji];
+            }
+          } else {
+            reactions[emoji] = (reactions[emoji] || 0) + 1;
+          }
+          return { ...prev, reactions };
+        });
+      }
     } catch (error) {
-      console.error('Reaction error:', error);
+      console.error('Error toggling reaction:', error);
       if (error instanceof Error) {
         toast.error(error.message);
       }
     }
   };
 
-  const placeholder = isDirectMessage 
-    ? `Message ${otherUserName || userName || '...'}`
-    : channelName 
-      ? `Message #${channelName}` 
-      : 'Message';
-
   return (
-    <div className="flex-1 flex bg-white h-[calc(100vh-4rem)]">
-      <div className="flex-1 flex flex-col">
-        <div className="flex-1 min-h-0">
-          <ScrollArea className="h-full">
-            <ScrollAreaPrimitive.Viewport ref={viewportRef} className="h-full w-full">
-              <div className="space-y-4 p-4">
-                {isLoading ? (
-                  <div className="text-center text-gray-500">Loading messages...</div>
-                ) : messages.length === 0 ? (
-                  <div className="text-center text-gray-500">No messages yet</div>
-                ) : (
-                  messages.map((message) => (
-                    <MessageItem
-                      key={message.id}
-                      message={message}
-                      toggleEmoji={toggleEmoji}
-                      openThread={handleOpenThread}
-                    />
-                  ))
-                )}
-              </div>
-            </ScrollAreaPrimitive.Viewport>
-          </ScrollArea>
+    <div className="flex-1 flex flex-col">
+      <div className="border-b p-4 flex justify-between items-center">
+        <div>
+          <h2 className="text-lg font-semibold">
+            {isDirectMessage ? otherUserName : channelName}
+          </h2>
+          {!isAIAssistant && (
+            <p className="text-sm text-gray-500">
+              {isDirectMessage ? 'Direct Message' : 'Channel'}
+            </p>
+          )}
         </div>
-        <MessageInput 
-          placeholder={placeholder} 
-          channelId={channelId} 
-          onMessageSent={() => {
-            setShouldScrollToBottom(true);
-            fetchMessages();
-          }}
-        />
       </div>
-      {activeThread && (
-        <div className="w-96 flex flex-col border-l">
-          <div className="p-4 border-b border-gray-200 flex justify-between items-center">
-            <h3 className="font-semibold">Thread</h3>
-            <Button variant="ghost" size="icon" onClick={() => setActiveThread(null)}>
-              <X className="h-4 w-4" />
-            </Button>
-          </div>
-          <div className="flex-1 min-h-0">
-            <ScrollArea className="h-full">
-              <ScrollAreaPrimitive.Viewport className="h-full w-full">
-                <div className="space-y-4 p-4">
+      <div className="flex-1 flex">
+        <div className={`flex-1 flex flex-col ${activeThread ? 'border-r' : ''}`}>
+          <ScrollArea className="flex-1">
+            <div ref={viewportRef} className="p-4 space-y-4">
+              {isLoading ? (
+                <div className="text-center">Loading messages...</div>
+              ) : messages.length === 0 ? (
+                <div className="text-center text-gray-500">
+                  {isAIAssistant 
+                    ? "Ask me anything about your workspace's conversations and files!"
+                    : "No messages yet"}
+                </div>
+              ) : (
+                messages.map((message) => (
                   <MessageItem
-                    message={activeThread}
+                    key={message.id}
+                    message={message}
+                    toggleEmoji={toggleEmoji}
+                    openThread={handleOpenThread}
+                  />
+                ))
+              )}
+            </div>
+          </ScrollArea>
+          <MessageInput
+            placeholder={isAIAssistant 
+              ? "Ask me anything about your workspace..."
+              : "Type a message..."}
+            channelId={channelId}
+            onMessageSent={fetchMessages}
+            isAIAssistant={isAIAssistant}
+            setMessages={setMessages}
+          />
+        </div>
+        {activeThread && (
+          <div className="w-96 flex flex-col">
+            <div className="border-b p-4">
+              <div className="flex justify-between items-center">
+                <h3 className="font-semibold">Thread</h3>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  onClick={() => setActiveThread(null)}
+                >
+                  <X className="h-4 w-4" />
+                </Button>
+              </div>
+            </div>
+            <ScrollArea className="flex-1">
+              <div className="p-4 space-y-4">
+                <MessageItem
+                  message={activeThread}
+                  toggleEmoji={toggleEmoji}
+                  openThread={handleOpenThread}
+                  isThreadView
+                />
+                {activeThread.replies.map((reply) => (
+                  <MessageItem
+                    key={reply.id}
+                    message={reply}
                     toggleEmoji={toggleEmoji}
                     openThread={handleOpenThread}
                     isThreadView
                   />
-                  {activeThread.replies?.map((reply) => (
-                    <MessageItem
-                      key={reply.id}
-                      message={reply}
-                      toggleEmoji={toggleEmoji}
-                      openThread={handleOpenThread}
-                      isThreadView
-                    />
-                  ))}
-                </div>
-              </ScrollAreaPrimitive.Viewport>
+                ))}
+              </div>
             </ScrollArea>
+            <MessageInput
+              placeholder="Reply to thread..."
+              channelId={channelId}
+              parentMessageId={activeThread.id}
+              onMessageSent={() => handleOpenThread(activeThread)}
+            />
           </div>
-          <MessageInput 
-            placeholder="Reply in thread" 
-            channelId={channelId}
-            parentMessageId={activeThread.id}
-            onMessageSent={fetchMessages}
-          />
-        </div>
-      )}
+        )}
+      </div>
     </div>
   );
 }
@@ -640,17 +667,18 @@ interface MessageInputProps {
   channelId?: string;
   parentMessageId?: string;
   onMessageSent: () => void;
+  isAIAssistant?: boolean;
+  setMessages?: React.Dispatch<React.SetStateAction<Message[]>>;
 }
 
-function MessageInput({ placeholder, channelId, parentMessageId, onMessageSent }: MessageInputProps) {
+function MessageInput({ placeholder, channelId, parentMessageId, onMessageSent, isAIAssistant, setMessages }: MessageInputProps) {
   const [isFocused, setIsFocused] = useState(false);
   const [isSending, setIsSending] = useState(false);
   const supabase = createClientComponentClient();
-
   const editor = useEditor({
     extensions: [
-      StarterKit.configure(),
-      Underline.configure(),
+      StarterKit,
+      Underline
     ],
     editorProps: {
       attributes: {
@@ -663,48 +691,110 @@ function MessageInput({ placeholder, channelId, parentMessageId, onMessageSent }
   });
 
   const sendMessage = async () => {
-    if (!editor?.getText().trim() || !channelId) return;
+    if (!editor?.getText().trim()) return;
+    
+    setIsSending(true);
 
     try {
-      setIsSending(true);
       const { data: { session }, error: authError } = await supabase.auth.getSession();
       if (!session) {
         toast.error('Please sign in to send messages');
         return;
       }
 
-      // Convert the rich text content to markdown
-      const markdown = editor.getHTML()
-        .replace(/<strong>/g, '**')
-        .replace(/<\/strong>/g, '**')
-        .replace(/<em>/g, '*')
-        .replace(/<\/em>/g, '*')
-        .replace(/<u>/g, '__')
-        .replace(/<\/u>/g, '__')
-        .replace(/<code>/g, '`')
-        .replace(/<\/code>/g, '`')
-        .replace(/<p>/g, '')
-        .replace(/<\/p>/g, '\n')
-        .trim();
+      const content = editor.getText().trim();
 
-      const { error } = await supabase
-        .from('messages')
-        .insert({
-          channel_id: channelId,
-          user_id: session.user.id,
-          content: markdown,
-          parent_message_id: parentMessageId
-        });
+      if (isAIAssistant && setMessages) {
+        try {
+          const response = await fetch('/api/ai-assistant', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              query: content
+            })
+          });
 
-      if (error) {
-        toast.error('Error sending message: ' + error.message);
-        return;
+          if (!response.ok) {
+            throw new Error('Failed to get AI response');
+          }
+
+          const data = await response.json();
+
+          // Add user message to state
+          const userMessage: Message = {
+            id: crypto.randomUUID(),
+            user_id: session.user.id,
+            content: content,
+            created_at: new Date().toISOString(),
+            user: {
+              user_name: 'You',
+              avatar_url: null
+            },
+            replies: []
+          };
+
+          // Add AI response to state
+          const aiMessage: Message = {
+            id: crypto.randomUUID(),
+            user_id: 'ai-assistant',
+            content: data.response,
+            created_at: new Date().toISOString(),
+            user: {
+              user_name: 'AI Assistant',
+              avatar_url: null
+            },
+            replies: []
+          };
+
+          setMessages(prev => [...prev, userMessage, aiMessage]);
+        } catch (error) {
+          console.error('Error getting AI response:', error);
+          toast.error('Failed to get AI response');
+        }
+      } else {
+        // Convert the rich text content to markdown
+        const markdown = editor.getHTML()
+          .replace(/<strong>/g, '**')
+          .replace(/<\/strong>/g, '**')
+          .replace(/<em>/g, '*')
+          .replace(/<\/em>/g, '*')
+          .replace(/<u>/g, '__')
+          .replace(/<\/u>/g, '__')
+          .replace(/<code>/g, '`')
+          .replace(/<\/code>/g, '`')
+          .replace(/<p>/g, '')
+          .replace(/<\/p>/g, '\n')
+          .trim();
+
+        const { error } = await supabase
+          .from('messages')
+          .insert({
+            channel_id: channelId,
+            user_id: session.user.id,
+            content: markdown,
+            parent_message_id: parentMessageId
+          });
+
+        if (error) {
+          toast.error('Error sending message: ' + error.message);
+          return;
+        }
+
+        if (parentMessageId) {
+          // Update has_reply flag on parent message
+          await supabase
+            .from('messages')
+            .update({ has_reply: true })
+            .eq('id', parentMessageId);
+        }
       }
 
-      editor?.commands.setContent('');
+      editor.commands.setContent('');
       onMessageSent();
     } catch (error) {
-      console.error('Send error:', error);
+      console.error('Error sending message:', error);
       if (error instanceof Error) {
         toast.error(error.message);
       }

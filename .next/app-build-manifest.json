@@ -25,6 +25,11 @@
       "static/chunks/webpack.js",
       "static/chunks/main-app.js",
       "static/chunks/app/workspace/[workspaceId]/channel/[channelId]/page.js"
+    ],
+    "/workspace/[workspaceId]/ai-assistant/page": [
+      "static/chunks/webpack.js",
+      "static/chunks/main-app.js",
+      "static/chunks/app/workspace/[workspaceId]/ai-assistant/page.js"
     ]
   }
 }

@@ -207,6 +207,19 @@ export function Sidebar({ workspaceId }: SidebarProps) {
               ))}
             </nav>
           </div>
+          <div className="mt-4">
+            <div className="flex items-center justify-between px-2 py-2">
+              <h3 className="text-sm font-semibold text-purple-700">AI Assistant</h3>
+            </div>
+            <nav className="space-y-1">
+              <Button variant="ghost" className="w-full justify-start text-purple-700" asChild>
+                <Link href={`/workspace/${workspaceId}/ai-assistant`}>
+                  <div className="w-4 h-4 rounded-full bg-blue-500 mr-2" />
+                  AI Assistant
+                </Link>
+              </Button>
+            </nav>
+          </div>
         </div>
       </ScrollArea>
       <div className="p-4 border-t">
