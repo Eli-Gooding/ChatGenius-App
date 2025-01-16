@@ -726,8 +726,8 @@ function ChatAreaComponent({ channelName, userName, channelId, isDirectMessage, 
   }, [isFilesSidebarOpen, workspaceId, channelId])
 
   return (
-    <div className="flex-1 flex flex-col relative">
-      <div className="flex items-center justify-between px-4 py-2 border-b">
+    <div className="flex-1 flex flex-col relative h-[calc(100vh-4rem)]">
+      <div className="flex items-center justify-between px-4 py-2 border-b bg-white">
         <div>
           <h2 className="font-semibold">
             {isDirectMessage ? otherUserName : channelName}
@@ -745,7 +745,7 @@ function ChatAreaComponent({ channelName, userName, channelId, isDirectMessage, 
       </div>
 
       <ScrollArea
-        className="flex-1"
+        className="flex-1 overflow-y-auto"
         scrollHideDelay={0}
         ref={viewportRef as any}
       >
@@ -771,16 +771,18 @@ function ChatAreaComponent({ channelName, userName, channelId, isDirectMessage, 
         </div>
       </ScrollArea>
 
-      <MessageInput
-        placeholder={`Message ${isDirectMessage ? otherUserName : channelName}`}
-        channelId={channelId}
-        onMessageSent={() => {
-          setShouldScrollToBottom(true);
-          scrollToBottom();
-        }}
-        isAIAssistant={isAIAssistant}
-        setMessages={setMessages}
-      />
+      <div className="sticky bottom-0 bg-white border-t">
+        <MessageInput
+          placeholder={`Message ${isDirectMessage ? otherUserName : channelName}`}
+          channelId={channelId}
+          onMessageSent={() => {
+            setShouldScrollToBottom(true);
+            scrollToBottom();
+          }}
+          isAIAssistant={isAIAssistant}
+          setMessages={setMessages}
+        />
+      </div>
 
       {workspaceId && channelId && (
         <FilesSidebar
