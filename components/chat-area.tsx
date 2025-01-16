@@ -93,7 +93,7 @@ interface ChatAreaProps {
   workspaceId?: string;
 }
 
-function ChatArea({ channelName, userName, channelId, isDirectMessage, isAIAssistant, workspaceId }: ChatAreaProps) {
+function ChatAreaComponent({ channelName, userName, channelId, isDirectMessage, isAIAssistant, workspaceId }: ChatAreaProps) {
   const [messages, setMessages] = useState<Message[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [activeThread, setActiveThread] = useState<Message | null>(null);
@@ -976,8 +976,8 @@ function MessageInput({ placeholder, channelId, parentMessageId, onMessageSent, 
     setIsSending(true);
 
     try {
-      const { data: { session }, error: authError } = await supabase.auth.getSession();
-      if (!session) {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session?.user?.id) {
         toast.error('Please sign in to send messages');
         return;
       }
@@ -1049,27 +1049,22 @@ function MessageInput({ placeholder, channelId, parentMessageId, onMessageSent, 
           setMessages(prev => prev.slice(0, -1));
         }
       } else {
-        // Handle regular channel messages
-        const { error } = await supabase
-          .from('messages')
-          .insert({
-            channel_id: channelId,
-            user_id: session.user.id,
-            content: content,
-            parent_message_id: parentMessageId
-          });
+        // Handle regular channel messages using new API
+        const response = await fetch('/api/messages', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            content,
+            channelId,
+            parentMessageId
+          })
+        });
 
-        if (error) {
-          toast.error('Error sending message: ' + error.message);
-          return;
-        }
-
-        if (parentMessageId) {
-          // Update has_reply flag on parent message
-          await supabase
-            .from('messages')
-            .update({ has_reply: true })
-            .eq('id', parentMessageId);
+        const data = await response.json();
+        if (!response.ok) {
+          throw new Error(data.error || 'Failed to send message');
         }
       }
 
@@ -1178,5 +1173,5 @@ function MessageInput({ placeholder, channelId, parentMessageId, onMessageSent, 
   );
 }
 
-export { ChatArea };
+export { ChatAreaComponent as ChatArea };
 
