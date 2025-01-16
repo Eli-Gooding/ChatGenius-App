@@ -1,5 +1,4 @@
 {
-  "/api/messages/route": "app/api/messages/route.js",
   "/api/ai-assistant/route": "app/api/ai-assistant/route.js",
   "/workspace/[workspaceId]/channel/[channelId]/page": "app/workspace/[workspaceId]/channel/[channelId]/page.js",
   "/workspace/[workspaceId]/ai-assistant/page": "app/workspace/[workspaceId]/ai-assistant/page.js",

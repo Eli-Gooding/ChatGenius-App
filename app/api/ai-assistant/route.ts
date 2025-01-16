@@ -1,14 +1,29 @@
 import { NextResponse } from 'next/server'
 import { OpenAIEmbeddings } from '@langchain/openai'
-import { PineconeStore } from '@langchain/pinecone'
-import { Pinecone } from '@pinecone-database/pinecone'
 import { PromptTemplate } from '@langchain/core/prompts'
 import { ChatOpenAI } from '@langchain/openai'
-import OpenAI from 'openai'
+import { Pinecone } from '@pinecone-database/pinecone'
+
+interface PineconeMetadata {
+  content: string;
+  username: string;
+  channelName: string;
+  timestamp: string;
+  messageId: string;
+  isReply: boolean;
+  parentMessageId: string;
+}
 
 interface Document {
   pageContent: string;
-  metadata: Record<string, any>;
+  metadata: {
+    username: string;
+    channelName: string;
+    timestamp: string;
+    messageId: string;
+    isReply: boolean;
+    parentMessageId: string;
+  };
 }
 
 // Initialize Pinecone client
@@ -58,23 +73,44 @@ export async function POST(req: Request) {
       throw new Error('PINECONE_INDEX_CHAT is not configured')
     }
 
-    console.log('Initializing Pinecone store...')
-    // Initialize Pinecone store
-    const index = pinecone.index(process.env.PINECONE_INDEX_CHAT)
-    const vectorStore = await PineconeStore.fromExistingIndex(
-      embeddings,
-      { pineconeIndex: index }
-    )
+    console.log('Creating query embedding...')
+    const queryEmbedding = await embeddings.embedQuery(query)
 
-    console.log('Searching for relevant documents...')
-    // Search for relevant documents
-    const results = await vectorStore.similaritySearch(query, 5)
-    console.log('Found documents:', results.length)
+    console.log('Querying Pinecone...')
+    const index = pinecone.index(process.env.PINECONE_INDEX_CHAT)
+    
+    const queryResponse = await index.query({
+      vector: queryEmbedding,
+      topK: 5,
+      includeMetadata: true
+    })
+
+    console.log('Found matches:', queryResponse.matches.length)
+
+    // Transform Pinecone results into documents
+    const results = queryResponse.matches.map(match => {
+      const metadata = match.metadata as Record<string, any>;
+      return {
+        pageContent: metadata?.content || '',
+        metadata: {
+          username: metadata?.username || 'Unknown',
+          channelName: metadata?.channelName || 'Unknown',
+          timestamp: metadata?.timestamp || new Date().toISOString(),
+          messageId: metadata?.messageId || '',
+          isReply: Boolean(metadata?.isReply),
+          parentMessageId: metadata?.parentMessageId || ''
+        }
+      }
+    }) as Document[]
 
     // Extract context from results
     const context = results
-      .map((doc: Document) => doc.pageContent)
+      .map((doc: Document) => {
+        const meta = doc.metadata
+        return `Message from ${meta.username} in #${meta.channelName} at ${new Date(meta.timestamp).toLocaleString()}:\n${doc.pageContent}`
+      })
       .join('\n\n')
+    
     console.log('Context length:', context.length)
 
     console.log('Formatting prompt...')
