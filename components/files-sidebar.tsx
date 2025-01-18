@@ -177,6 +177,31 @@ export function FilesSidebar({ isOpen, onClose, channelId, workspaceId }: FilesS
 
       console.log('Database insert successful:', dbData)
 
+      // Process PDF files for vector storage
+      if (file.type === 'application/pdf') {
+        try {
+          const response = await fetch('/api/files/process', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              fileId: dbData.id
+            })
+          });
+
+          if (!response.ok) {
+            console.error('PDF processing failed:', await response.json());
+            // Don't throw error here - we still want to show success for upload
+          } else {
+            console.log('PDF processed successfully:', await response.json());
+          }
+        } catch (error) {
+          console.error('Error processing PDF:', error);
+          // Don't throw error - upload was still successful
+        }
+      }
+
       // Clear the file input
       if (fileInputRef.current) {
         fileInputRef.current.value = ''
