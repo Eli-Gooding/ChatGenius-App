@@ -1,6 +1,7 @@
 "use client"
 
 import { useState, useEffect, useRef } from 'react'
+import { v4 as uuidv4 } from 'uuid'
 import { ScrollArea } from "@/components/ui/scroll-area"
 import * as ScrollAreaPrimitive from "@radix-ui/react-scroll-area"
 import { Button } from "@/components/ui/button"
@@ -1153,7 +1154,7 @@ function MessageInput({ placeholder, channelId, parentMessageId, onMessageSent, 
         try {
           // Add user message to state first
           const userMessage: Message = {
-            id: crypto.randomUUID(),
+            id: uuidv4(),
             user_id: session.user.id,
             content: content,
             created_at: new Date().toISOString(),
@@ -1185,7 +1186,7 @@ function MessageInput({ placeholder, channelId, parentMessageId, onMessageSent, 
 
           // Add AI response to state
           const aiMessage: Message = {
-            id: crypto.randomUUID(),
+            id: uuidv4(),
             user_id: 'ai-assistant',
             content: data.response,
             created_at: new Date().toISOString(),
