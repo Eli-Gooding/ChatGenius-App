@@ -4,14 +4,30 @@ import { NextResponse } from 'next/server';
 import { OpenAIEmbeddings } from '@langchain/openai';
 import { Pinecone } from '@pinecone-database/pinecone';
 
+// Set LangChain to use background callbacks for better performance
+process.env.LANGCHAIN_CALLBACKS_BACKGROUND = "true";
+
 export async function POST(request: Request) {
   try {
     const supabase = createRouteHandlerClient({ cookies });
+    
     const { content, channelId, parentMessageId } = await request.json();
 
     // Verify user session
-    const { data: { session }, error: authError } = await supabase.auth.getSession();
+    const sessionResult = await supabase.auth.getSession();
+    console.log('[Auth] Session check result:', {
+      hasSession: !!sessionResult.data.session,
+      error: sessionResult.error
+    });
+
+    if (sessionResult.error) {
+      console.error('[Auth] Session error:', sessionResult.error);
+      return NextResponse.json({ error: 'Authentication error' }, { status: 401 });
+    }
+
+    const session = sessionResult.data.session;
     if (!session) {
+      console.error('[Auth] No session found');
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
@@ -28,6 +44,7 @@ export async function POST(request: Request) {
       .single();
 
     if (messageError) {
+      console.error('[DB] Message insert error:', messageError);
       return NextResponse.json({ error: messageError.message }, { status: 500 });
     }
 
@@ -77,7 +94,7 @@ export async function POST(request: Request) {
 
     return NextResponse.json(messageData);
   } catch (error) {
-    console.error('Error in message creation:', error);
+    console.error('[API] Critical error in message creation:', error);
     return NextResponse.json(
       { error: 'Internal server error' },
       { status: 500 }

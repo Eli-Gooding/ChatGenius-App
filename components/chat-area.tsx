@@ -15,6 +15,7 @@ import { Editor as TipTapEditor, EditorContent, useEditor } from '@tiptap/react'
 import StarterKit from '@tiptap/starter-kit'
 import Underline from '@tiptap/extension-underline'
 import { FilesSidebar } from './files-sidebar'
+import { RealtimeChannel, RealtimePostgresChangesPayload } from '@supabase/supabase-js'
 
 interface MessageUser {
   user_name: string;
@@ -93,6 +94,76 @@ interface ChatAreaProps {
   workspaceId?: string;
 }
 
+interface ReactionPayload {
+  id: string
+  message_id: string
+  user_id: string
+  emoji: string
+}
+
+interface DatabaseMessage {
+  id: string
+  content: string
+  created_at: string
+  user_id: string
+  channel_id: string
+  parent_message_id: string | null
+  has_reply: boolean
+}
+
+interface RealtimePostgresInsertPayload<T> {
+  schema: string;
+  table: string;
+  commit_timestamp: string;
+  eventType: 'INSERT';
+  new: T;
+  old: null;
+  errors: null;
+}
+
+interface RealtimePostgresUpdatePayload<T> {
+  schema: string;
+  table: string;
+  commit_timestamp: string;
+  eventType: 'UPDATE';
+  new: T;
+  old: T;
+  errors: null;
+}
+
+interface RealtimePostgresDeletePayload<T> {
+  schema: string;
+  table: string;
+  commit_timestamp: string;
+  eventType: 'DELETE';
+  old: T;
+  errors: null;
+}
+
+type RealtimeMessageInsertPayload = {
+  new: DatabaseMessage
+  old: null
+  eventType: 'INSERT'
+}
+
+type RealtimeMessageUpdatePayload = {
+  new: DatabaseMessage
+  old: DatabaseMessage
+  eventType: 'UPDATE'
+}
+
+type RealtimeMessageDeletePayload = {
+  new: null
+  old: DatabaseMessage
+  eventType: 'DELETE'
+}
+
+type RealtimeReactionPayload = {
+  new: ReactionPayload | null
+  old: ReactionPayload | null
+  eventType: 'INSERT' | 'UPDATE' | 'DELETE'
+}
+
 function ChatAreaComponent({ channelName, userName, channelId, isDirectMessage, isAIAssistant, workspaceId }: ChatAreaProps) {
   const [messages, setMessages] = useState<Message[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -104,7 +175,190 @@ function ChatAreaComponent({ channelName, userName, channelId, isDirectMessage, 
   const lastScrollPosition = useRef<number>(0);
   const isInitialLoad = useRef<boolean>(true);
   const threadSubscription = useRef<ReturnType<typeof supabase.channel> | null>(null);
+  const channelSubscription = useRef<RealtimeChannel | null>(null);
   const supabase = createClientComponentClient();
+
+  // Cleanup function for real-time subscriptions
+  const cleanupSubscriptions = () => {
+    if (channelSubscription.current) {
+      console.log('[Cleanup] Unsubscribing from channel:', channelId);
+      channelSubscription.current.unsubscribe();
+      channelSubscription.current = null;
+    }
+  };
+
+  // Setup real-time subscription
+  useEffect(() => {
+    if (!channelId && !isAIAssistant) return;
+    
+    if (isAIAssistant) {
+      // For AI Assistant, we'll load messages from local storage
+      const storedMessages = localStorage.getItem('ai_assistant_messages');
+      if (storedMessages) {
+        setMessages(JSON.parse(storedMessages));
+      }
+      setIsLoading(false);
+      return;
+    }
+
+    console.log('[Setup] Setting up real-time subscription for channel:', channelId);
+    
+    // Initial fetch of messages
+    fetchMessages();
+
+    // Create a function to setup a new channel subscription
+    const setupChannel = (): RealtimeChannel => {
+      cleanupSubscriptions(); // Cleanup any existing subscription
+
+      console.log('[Channel Setup] Creating new channel subscription');
+      const channel = supabase.channel(`room-${channelId}`);
+      
+      // Subscribe to messages
+      channel
+        .on(
+          'postgres_changes',
+          {
+            event: 'INSERT',
+            schema: 'public',
+            table: 'messages',
+            filter: `channel_id=eq.${channelId}`
+          },
+          async (payload) => {
+            console.log('Message insert received:', payload);
+            if (!payload.new) return;
+
+            // Only update main message list if it's a root message
+            if (!payload.new.parent_message_id) {
+              const { data: userData, error: userError } = await supabase
+                .from('users')
+                .select('user_name, avatar_url')
+                .eq('id', payload.new.user_id)
+                .single();
+
+              if (userError) {
+                console.error('[Message Insert] Error fetching user data:', userError);
+                return;
+              }
+
+              const newMessage: Message = {
+                id: payload.new.id,
+                user_id: payload.new.user_id,
+                content: payload.new.content,
+                created_at: payload.new.created_at,
+                has_reply: payload.new.has_reply || false,
+                replies: [],
+                reactions: {},
+                user: userData
+              };
+
+              setMessages(prev => {
+                if (prev.some(msg => msg.id === newMessage.id)) return prev;
+                return [...prev, newMessage];
+              });
+
+              if (shouldScrollToBottom) {
+                scrollToBottom();
+              }
+            } else if (activeThread && payload.new.parent_message_id === activeThread.id) {
+              console.log('[Thread] Received new thread reply');
+              // If it's a reply to the active thread, refresh thread replies
+              const replies = await fetchThreadReplies(activeThread.id);
+              console.log('[Thread] Fetched updated replies:', replies);
+              setActiveThread(prev => prev ? { ...prev, replies } : null);
+              // Also refresh the main messages to update has_reply status
+              fetchMessages();
+            }
+          }
+        )
+        .on(
+          'postgres_changes',
+          {
+            event: 'UPDATE',
+            schema: 'public',
+            table: 'messages',
+            filter: `channel_id=eq.${channelId}`
+          },
+          async (payload) => {
+            console.log('Message update received:', payload);
+            if (payload.new) {
+              setMessages(prev => prev.map(msg => {
+                if (msg.id === payload.new.id) {
+                  return { ...msg, content: payload.new.content, has_reply: payload.new.has_reply };
+                }
+                return msg;
+              }));
+            }
+          }
+        )
+        .on(
+          'postgres_changes',
+          {
+            event: 'DELETE',
+            schema: 'public',
+            table: 'messages',
+            filter: `channel_id=eq.${channelId}`
+          },
+          async (payload) => {
+            console.log('Message delete received:', payload);
+            if (payload.old) {
+              setMessages(prev => prev.filter(msg => msg.id !== payload.old.id));
+            }
+          }
+        )
+        .subscribe((status, err) => {
+          console.log(`Subscription status: ${status}`);
+          if (err) console.error('Subscription error:', err);
+          
+          if (status === 'SUBSCRIBED') {
+            console.log('Successfully subscribed to channel:', channelId);
+          } else if (status === 'CHANNEL_ERROR') {
+            console.error('Channel error, attempting to reconnect...');
+            setTimeout(() => {
+              console.log('Attempting to resubscribe...');
+              channel.subscribe();
+            }, 1000);
+          }
+        });
+
+      return channel;
+    };
+
+    // Set up the initial channel
+    try {
+      const channel = setupChannel();
+      channelSubscription.current = channel;
+
+      // Subscribe to the channel
+      channel.subscribe(async (status) => {
+        console.log('[Subscription] Status:', status);
+
+        if (status === 'SUBSCRIBED') {
+          console.log('[Subscription] Successfully subscribed to real-time changes');
+          // Verify the subscription is working
+          const { data: { session } } = await supabase.auth.getSession();
+          console.log('[Subscription] Current session:', session ? 'Active' : 'None');
+        }
+
+        if (status === 'CHANNEL_ERROR') {
+          console.error('[Subscription] Channel error - reconnecting in 1s...');
+          setTimeout(() => {
+            setupChannel().subscribe();
+          }, 1000);
+        }
+
+        if (status === 'TIMED_OUT' || status === 'CLOSED') {
+          console.log(`[Subscription] Channel ${status.toLowerCase()} - reconnecting...`);
+          setupChannel().subscribe();
+        }
+      });
+
+    } catch (error) {
+      console.error('[Setup] Error setting up channel:', error);
+    }
+
+    // Cleanup on unmount or channel change
+    return cleanupSubscriptions;
+  }, [channelId, isAIAssistant]);
 
   // Fetch the other user's name for DMs
   useEffect(() => {
@@ -228,115 +482,6 @@ function ChatAreaComponent({ channelName, userName, channelId, isDirectMessage, 
     return () => viewport.removeEventListener('scroll', handleScroll);
   }, []);
 
-  useEffect(() => {
-    if (!channelId && !isAIAssistant) return;
-    
-    if (isAIAssistant) {
-      // For AI Assistant, we'll load messages from local storage
-      const storedMessages = localStorage.getItem('ai_assistant_messages');
-      if (storedMessages) {
-        setMessages(JSON.parse(storedMessages));
-      }
-      setIsLoading(false);
-      return;
-    }
-
-    console.log('Setting up real-time subscription for channel:', channelId);
-    
-    // Initial fetch of messages
-    fetchMessages();
-
-    // Subscribe to new messages and reactions
-    const channel = supabase
-      .channel(`room-${channelId}`)
-      .on(
-        'postgres_changes',
-        {
-          event: '*',
-          schema: 'public',
-          table: 'messages',
-          filter: `channel_id=eq.${channelId}`
-        },
-        async (payload) => {
-          console.log('Message change received:', payload);
-          
-          if (payload.eventType === 'INSERT') {
-            console.log('New message received:', payload.new);
-            
-            // Only update main message list if it's a root message
-            if (!payload.new.parent_message_id) {
-              type NewMessageResponse = {
-                id: string;
-                content: string;
-                created_at: string;
-                user_id: string;
-                has_reply: boolean;
-                users: {
-                  user_name: string;
-                  avatar_url: string | null;
-                };
-                reactions: DatabaseReaction[] | null;
-              };
-
-              // Get the user data in parallel with handling the message
-              const { data: newMessage, error } = await supabase
-                .from('messages')
-                .select(`
-                  id,
-                  content,
-                  created_at,
-                  user_id,
-                  has_reply,
-                  users!inner (
-                    user_name,
-                    avatar_url
-                  ),
-                  reactions (
-                    emoji,
-                    user_id
-                  )
-                `)
-                .eq('id', payload.new.id)
-                .single() as unknown as { data: NewMessageResponse, error: any };
-
-              if (error || !newMessage) {
-                console.error('Error fetching new message:', error);
-                return;
-              }
-
-              const transformedMessage: Message = {
-                id: newMessage.id,
-                user_id: newMessage.user_id,
-                content: newMessage.content,
-                created_at: newMessage.created_at,
-                has_reply: newMessage.has_reply || false,
-                user: {
-                  user_name: newMessage.users.user_name,
-                  avatar_url: newMessage.users.avatar_url
-                },
-                replies: [],
-                reactions: newMessage.reactions?.reduce((acc: { [key: string]: number }, reaction: DatabaseReaction) => {
-                  acc[reaction.emoji] = (acc[reaction.emoji] || 0) + 1;
-                  return acc;
-                }, {})
-              };
-
-              setMessages(prev => [...prev, transformedMessage]);
-              
-              if (shouldScrollToBottom) {
-                scrollToBottom();
-              }
-            }
-          }
-        }
-      )
-      .subscribe();
-
-    return () => {
-      channel.unsubscribe();
-    };
-  }, [channelId, isAIAssistant]);
-
   // Save AI Assistant messages to local storage
   useEffect(() => {
     if (isAIAssistant && messages.length > 0) {
@@ -348,6 +493,7 @@ function ChatAreaComponent({ channelName, userName, channelId, isDirectMessage, 
     if (!channelId) return;
 
     try {
+      console.log('[Fetch] Starting to fetch messages for channel:', channelId);
       setIsLoading(true);
       saveScrollPosition();
 
@@ -364,6 +510,7 @@ function ChatAreaComponent({ channelName, userName, channelId, isDirectMessage, 
         reactions: DatabaseReaction[] | null;
       };
 
+      console.log('[Fetch] Making Supabase query...');
       const { data: messagesData, error: messagesError } = await supabase
         .from('messages')
         .select(`
@@ -387,31 +534,47 @@ function ChatAreaComponent({ channelName, userName, channelId, isDirectMessage, 
         .returns<MessageResponse[]>();
 
       if (messagesError) {
+        console.error('[Fetch] Error details:', {
+          error: messagesError,
+          code: messagesError.code,
+          details: messagesError.details,
+          hint: messagesError.hint
+        });
         toast.error('Error loading messages: ' + messagesError.message);
         return;
       }
 
-      const transformedMessages = (messagesData || []).map(message => ({
-        id: message.id,
-        user_id: message.user_id,
-        content: message.content,
-        created_at: message.created_at,
-        user: {
-          user_name: message.users.user_name,
-          avatar_url: message.users.avatar_url
-        },
-        replies: [],
-        has_reply: message.has_reply,
-        reactions: message.reactions?.reduce((acc: { [key: string]: number }, reaction) => {
-          acc[reaction.emoji] = (acc[reaction.emoji] || 0) + 1;
-          return acc;
-        }, {})
-      })) as Message[];
+      console.log('[Fetch] Successfully retrieved messages:', {
+        count: messagesData?.length || 0,
+        channelId
+      });
 
+      const transformedMessages = (messagesData || []).map(message => {
+        console.log('[Fetch] Transforming message:', message.id);
+        return {
+          id: message.id,
+          user_id: message.user_id,
+          content: message.content,
+          created_at: message.created_at,
+          user: {
+            user_name: message.users.user_name,
+            avatar_url: message.users.avatar_url
+          },
+          replies: [],
+          has_reply: message.has_reply,
+          reactions: message.reactions?.reduce((acc: { [key: string]: number }, reaction) => {
+            acc[reaction.emoji] = (acc[reaction.emoji] || 0) + 1;
+            return acc;
+          }, {})
+        };
+      }) as Message[];
+
+      console.log('[Fetch] Setting messages in state:', transformedMessages.length);
       setMessages(transformedMessages);
     } catch (error) {
-      console.error('Fetch error:', error);
+      console.error('[Fetch] Critical error:', error);
       if (error instanceof Error) {
+        console.error('[Fetch] Error stack:', error.stack);
         toast.error(error.message);
       }
     } finally {
@@ -772,16 +935,16 @@ function ChatAreaComponent({ channelName, userName, channelId, isDirectMessage, 
       </ScrollArea>
 
       <div className="sticky bottom-0 bg-white border-t">
-        <MessageInput
-          placeholder={`Message ${isDirectMessage ? otherUserName : channelName}`}
-          channelId={channelId}
-          onMessageSent={() => {
-            setShouldScrollToBottom(true);
-            scrollToBottom();
-          }}
-          isAIAssistant={isAIAssistant}
-          setMessages={setMessages}
-        />
+      <MessageInput
+        placeholder={`Message ${isDirectMessage ? otherUserName : channelName}`}
+        channelId={channelId}
+        onMessageSent={() => {
+          setShouldScrollToBottom(true);
+          scrollToBottom();
+        }}
+        isAIAssistant={isAIAssistant}
+        setMessages={setMessages}
+      />
       </div>
 
       {workspaceId && channelId && (
@@ -881,7 +1044,7 @@ function MessageItem({ message, toggleEmoji, openThread, isThreadView }: Message
             </PopoverTrigger>
             <PopoverContent className="w-64">
               <div className="grid grid-cols-8 gap-2">
-                {['👍', '❤️', '😂', '😮', '😢', '😡'].map((emoji) => (
+                {['👍', '❤️', '😂', '😮', '😢', '��'].map((emoji) => (
                   <Button key={emoji} variant="ghost" size="sm" onClick={() => toggleEmoji(message.id, emoji)}>
                     {emoji}
                   </Button>
@@ -1176,4 +1339,5 @@ function MessageInput({ placeholder, channelId, parentMessageId, onMessageSent, 
 }
 
 export { ChatAreaComponent as ChatArea };
+
 

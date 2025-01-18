@@ -930,6 +930,9 @@ video {
 .h-\[1px\] {
   height: 1px;
 }
+.h-\[calc\(100vh-4rem\)\] {
+  height: calc(100vh - 4rem);
+}
 .h-\[var\(--radix-navigation-menu-viewport-height\)\] {
   height: var(--radix-navigation-menu-viewport-height);
 }
@@ -950,9 +953,6 @@ video {
 }
 .h-svh {
   height: 100svh;
-}
-.h-\[calc\(100vh-4rem\)\] {
-  height: calc(100vh - 4rem);
 }
 .max-h-96 {
   max-height: 24rem;
